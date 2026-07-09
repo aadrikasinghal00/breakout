@@ -59,7 +59,7 @@ export const SUGGESTIONS_BY_PAGE: Record<string, string[]> = {
 };
 
 /** The default agent avatar shown when the customer opts out of using their own logo. */
-export const DEFAULT_AGENT = { src: "/breakout/agent.svg", bg: "linear-gradient(140deg,#6366f1,#8b5cf6)", pad: "26%" };
+export const DEFAULT_AGENT = { src: "/breakout/agent.svg", bg: "linear-gradient(145deg,#2b2b30,#141416)", pad: "26%" };
 
 export type Config = {
   theme: ThemeKey;
