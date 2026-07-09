@@ -31,7 +31,7 @@ export type NudgeType = "card" | "visual" | "mediatop" | "text" | "testimonial" 
 export const NUDGE_TYPES: { key: NudgeType; label: string }[] = [
   { key: "card", label: "Card" },
   { key: "visual", label: "Visual" },
-  { key: "mediatop", label: "Media Top" },
+  { key: "mediatop", label: "Multimedia" },
   { key: "text", label: "Text" },
   { key: "testimonial", label: "Testimonial" },
   { key: "multi", label: "Multi-CTA" },
@@ -373,7 +373,23 @@ function PanelBody({ config, onChange }: { config: Config; onChange: (next: Conf
         )}
       </AnimatePresence>
 
-      <Row label="Brand logo"><Toggle on={config.useLogo} onChange={(v) => set({ useLogo: v })} /></Row>
+      <Group label="Left icon">
+        <div className="flex gap-[6px]">
+          {[
+            { on: true, label: "Brand logo" },
+            { on: false, label: "Agent icon" },
+          ].map((o) => (
+            <button
+              key={o.label}
+              type="button"
+              onClick={() => set({ useLogo: o.on })}
+              className={`flex-1 rounded-[9px] py-[9px] text-[12px] font-medium transition-colors ${config.useLogo === o.on ? "bg-[#111] text-white" : "bg-[#f0f0f0] text-[#4a4a4a] hover:bg-[#e7e7e7]"}`}
+            >
+              {o.label}
+            </button>
+          ))}
+        </div>
+      </Group>
 
       <div className="h-px bg-[#eee]" />
 
