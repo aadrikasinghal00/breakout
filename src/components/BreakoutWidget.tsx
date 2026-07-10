@@ -8,6 +8,7 @@ import SuccessCard from "./SuccessCard";
 import NudgeCard from "./NudgeCard";
 import { playChime, playTick } from "../sound";
 import { glass } from "../glass";
+import { MARK_ID, SURFACE_ID, contentIn, surfaceMorph } from "../morph";
 
 const REP_NAME = "Sarah";
 
@@ -23,20 +24,14 @@ const roll = { type: "spring", stiffness: 300, damping: 34, mass: 0.85 } as cons
 
 // Every view is absolutely anchored to the same bottom-center point and only
 // grows upward — so the input frame stays "set in stone", never repositioning.
-const anchor = "absolute bottom-0 left-0 flex flex-col items-center";
+const anchor = "absolute bottom-0 left-0 -translate-x-1/2 flex flex-col items-center";
 
 // NOTHING that wraps a glass surface may animate `opacity`. In Chromium any opacity < 1 —
 // on the element itself OR on any ancestor — makes a backdrop root, and the descendant's
 // `backdrop-filter` then samples an empty backdrop. Fading a panel in therefore shows a
 // flat, transparent version of it for the whole animation, with the blur snapping on at
-// the end. `transform` has no such effect, so every entrance here is pure scale + travel.
-const grow = {
-  initial: { y: 12, scale: 0.96, x: "-50%" },
-  animate: { y: 0, scale: 1, x: "-50%" },
-  exit: { y: 8, scale: 0.96, x: "-50%" },
-  transition: { type: "spring", stiffness: 320, damping: 34, mass: 0.8 } as const,
-  style: { transformOrigin: "bottom center" } as CSSProperties,
-};
+// the end. `transform` has no such effect. Views therefore never fade: they morph, via
+// the shared `layoutId`s in morph.ts.
 
 export const ICONS: Record<string, string> = {
   doc: "/breakout/doc.svg",
@@ -552,13 +547,18 @@ export default function BreakoutWidget({
 
   return (
     <div ref={rootRef} className="relative" style={{ ...(theme.vars as CSSProperties), ...(primaryColor ? { "--bo-primary-fill": primaryColor } as CSSProperties : {}), ...(primaryColor && readableTextFor(primaryColor) ? { "--bo-primary-text": readableTextFor(primaryColor)!.text, "--bo-primary-text-shadow": readableTextFor(primaryColor)!.shadow } as CSSProperties : {}), ...(font ? { fontFamily: `'${font}', system-ui, sans-serif` } : {}) }} onMouseEnter={() => setScrolledLocal(false)} onMouseLeave={() => setHovered(false)}>
-      <AnimatePresence initial={false}>
-        {view === "success" && <motion.div key="success" className={anchor} {...grow}><SuccessCard theme={theme} logo={activeLogo} onClose={closeChat} onContinue={closeChat} /></motion.div>}
+      {/* No AnimatePresence and no `exit` here on purpose. The three views share one glass
+          surface and one mark (see morph.ts): the outgoing view unmounts in the same commit
+          the incoming one mounts, so Framer morphs the surface from the old box to the new
+          one. Give the outgoing view an exit animation and Framer crossfades the two
+          instead, which is an opacity animation, which flattens the glass mid-morph. */}
+      <>
+        {view === "success" && <div key="success" className={anchor}><SuccessCard theme={theme} logo={activeLogo} onClose={closeChat} onContinue={closeChat} /></div>}
 
-        {view === "chat" && <motion.div key="chat" className={anchor} {...grow}><ChatPanel theme={theme} logo={activeLogo} rep={rep} messages={messages} thinking={thinking} onSend={sendInChat} onCta={() => setSuccess(true)} onClose={closeChat} onMinimize={minimizeChat} cta={primary?.label} onSelectHistory={selectHistory} onNewConversation={newConversation} /></motion.div>}
+        {view === "chat" && <div key="chat" className={anchor}><ChatPanel theme={theme} logo={activeLogo} rep={rep} messages={messages} thinking={thinking} onSend={sendInChat} onCta={() => setSuccess(true)} onClose={closeChat} onMinimize={minimizeChat} cta={primary?.label} onSelectHistory={selectHistory} onNewConversation={newConversation} /></div>}
 
         {view === "full" && (
-          <motion.div key="full" className="absolute bottom-0 left-0" {...grow}>
+          <div key="full" className="absolute bottom-0 left-0 -translate-x-1/2">
             {/* On scroll the frame MORPHS down (no frame scale, so nothing gets uneven):
                 the mark shrinks and the secondaries + primary become equal 24px chips —
                 exactly like the minimized scroll state. Suggestion is removed. */}
@@ -570,7 +570,11 @@ export default function BreakoutWidget({
                       itself. No `overflow-hidden`: the unread badge overhangs the corner. */}
                   <motion.div className="flex shrink-0 items-center justify-center" animate={{ width: compact ? 28 : 40, height: compact ? 36 : 48 }} transition={scrollEase}>
                     <motion.div className="origin-center shrink-0" animate={{ scale: compact ? 0.7 : 1 }} transition={scrollEase}>
-                      <Logo px={40} rep={repActive} theme={theme} logo={activeLogo} badge={showBadge ? 1 : 0} />
+                      {/* The mark is the same 40px disc in every view, so it only ever needs
+                          to travel: `layout="position"` moves it without touching its size. */}
+                      <motion.div layoutId={MARK_ID} layout="position" layoutDependency={view} transition={surfaceMorph}>
+                        <Logo px={40} rep={repActive} theme={theme} logo={activeLogo} badge={showBadge ? 1 : 0} />
+                      </motion.div>
                     </motion.div>
                   </motion.div>
                   {/* "Ask anything", scrolled, keep-on-scroll off → the pod collapses its
@@ -588,7 +592,10 @@ export default function BreakoutWidget({
                     style={{ overflow: clipPod || askDropped ? "hidden" : "visible", pointerEvents: askDropped ? "none" : "auto" }}
                   >
                   <PulseFrame on={pulse} color={pulseColor} radius={podRadius(theme)}>
-                    <motion.div className={`${strokeCls} flex items-center overflow-hidden ${showFullInput ? "" : "cursor-text"}`} style={glass(theme, "--bo-r-pod")} animate={{ height: compact ? 36 : 48, paddingTop: 6, paddingBottom: 6, paddingLeft: podPadLeft, paddingRight: podPadRight }} transition={scrollEase} onHoverStart={enterHover} onHoverEnd={leaveHover} onClick={() => inputRef.current?.focus()}>
+                    <motion.div layoutId={SURFACE_ID} layoutDependency={view} className={`${strokeCls} flex items-center overflow-hidden ${showFullInput ? "" : "cursor-text"}`} style={glass(theme, "--bo-r-pod")} animate={{ height: compact ? 36 : 48, paddingTop: 6, paddingBottom: 6, paddingLeft: podPadLeft, paddingRight: podPadRight }} transition={{ default: scrollEase, layout: surfaceMorph }} onHoverStart={enterHover} onHoverEnd={leaveHover} onClick={() => inputRef.current?.focus()}>
+                      {/* `layout` here is what keeps the pod's contents from wearing the
+                          morph's scale — see morph.ts. */}
+                      <motion.div className="flex items-center" {...contentIn}>
                       {/* Input stays mounted (width springs 0↔inputW) so expanding never
                           inserts a node mid-animation — no reflow stutter. It's inert
                           (pointer-events none, width 0) at rest, so no layout shift. */}
@@ -625,6 +632,7 @@ export default function BreakoutWidget({
                           <PrimaryMorph key="primary" label={primary.label} icon={primary.icon} booking={primary.key === "book_call"} compact={compact} theme={theme} hoverBg={secHover} filter={filter} onClick={activatePrimary} />
                         </motion.div>
                       )}
+                      </motion.div>
                     </motion.div>
                   </PulseFrame>
                   </motion.div>
@@ -648,9 +656,9 @@ export default function BreakoutWidget({
                 </motion.div>
               </div>
             </div>
-          </motion.div>
+          </div>
         )}
-      </AnimatePresence>
+      </>
     </div>
   );
 }

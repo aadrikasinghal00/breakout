@@ -2,6 +2,7 @@ import { AnimatePresence, motion } from "framer-motion";
 import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties } from "react";
 import type { Theme } from "../themes";
 import { glass, glassEdge } from "../glass";
+import { MARK_ID, SURFACE_ID, contentIn, surfaceMorph } from "../morph";
 
 export type Msg =
   | { from: "ai" | "user"; text: string; cta?: string }
@@ -232,9 +233,14 @@ export default function ChatPanel({
   return (
     <div className="flex flex-col items-center gap-[10px]" style={theme.vars as CSSProperties}>
       <div className="relative flex items-end gap-[8px]">
-        <Avatar rep={rep} theme={theme} size={40} radius={56.25} logo={logo} online />
+        {/* Same mark as the resting pod — it travels, it does not re-appear. */}
+        <motion.div layoutId={MARK_ID} layout="position" layoutDependency={0} transition={surfaceMorph} className="shrink-0">
+          <Avatar rep={rep} theme={theme} size={40} radius={56.25} logo={logo} online />
+        </motion.div>
 
-        <div className={`${theme.gradientStroke ? "glass-stroke" : ""} flex h-[329px] w-[479px] flex-col justify-end gap-[20px] p-[12px]`} style={glass(theme, "--bo-r-card", "--bo-blur-lg")}>
+        {/* Same glass surface as the resting pod — it changes shape, it is not rebuilt. */}
+        <motion.div layoutId={SURFACE_ID} layoutDependency={0} transition={{ layout: surfaceMorph }} className={`${theme.gradientStroke ? "glass-stroke" : ""} flex h-[329px] w-[479px] flex-col justify-end gap-[20px] p-[12px]`} style={glass(theme, "--bo-r-card", "--bo-blur-lg")}>
+          <motion.div className="flex min-h-0 w-full flex-1 flex-col justify-end gap-[20px]" {...contentIn}>
           <div className="flex min-h-0 flex-1 flex-col gap-[12px]">
             <div className="relative flex w-full shrink-0 items-center justify-between pr-[4px]">
               <div className="flex items-center gap-[6px]">
@@ -303,7 +309,8 @@ export default function ChatPanel({
               </motion.button>
             </div>
           </div>
-        </div>
+          </motion.div>
+        </motion.div>
 
         {/* The dropdown lives OUTSIDE the glass panel on purpose. A backdrop-filter
             element is a backdrop root for its descendants, so nested inside the panel the
