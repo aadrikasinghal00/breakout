@@ -1,0 +1,8 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "rewrites": [
+    { "source": "/site", "destination": "https://getbreakout.ai/" },
+    { "source": "/site/", "destination": "https://getbreakout.ai/" },
+    { "source": "/site/:path*", "destination": "https://getbreakout.ai/:path*" }
+  ]
+}

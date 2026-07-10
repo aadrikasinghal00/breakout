@@ -1,9 +1,9 @@
 import { motion } from "framer-motion";
 import { type CSSProperties } from "react";
 import type { Theme } from "../themes";
+import { glass } from "../glass";
 
 const velvet = { type: "spring", stiffness: 420, damping: 34, mass: 0.7 } as const;
-const border: CSSProperties = { borderWidth: 1, borderStyle: "solid", borderColor: "var(--bo-border)" };
 
 export default function SuccessCard({
   theme,
@@ -27,7 +27,7 @@ export default function SuccessCard({
           <div className="absolute inset-0 rounded-[inherit] shadow-[inset_0px_-2px_3px_0px_rgba(255,255,255,0.2),inset_0px_2px_3px_0px_rgba(255,255,255,0.2)]" />
         </div>
 
-        <div className={`${theme.gradientStroke ? "glass-stroke" : ""} relative flex w-[300px] flex-col items-center gap-[10px] px-[20px] py-[28px]`} style={{ ...border, backgroundColor: "var(--bo-fill)", backdropFilter: "blur(38px)", WebkitBackdropFilter: "blur(38px)", boxShadow: "var(--bo-shadow)", borderRadius: "var(--bo-r-card)" }}>
+        <div className={`${theme.gradientStroke ? "glass-stroke" : ""} relative flex w-[300px] flex-col items-center gap-[10px] px-[20px] py-[28px]`} style={glass(theme, "--bo-r-card", "--bo-blur-lg")}>
           <button type="button" onClick={onClose} className="absolute right-[12px] top-[12px] opacity-70 transition-opacity hover:opacity-100"><img src="/breakout/close.svg" alt="close" className="size-[14px]" style={{ filter: theme.iconDark ? "brightness(0) opacity(0.7)" : "none" }} /></button>
 
           <motion.div className="flex size-[44px] items-center justify-center rounded-full" style={{ backgroundColor: "var(--bo-primary-fill)" }} initial={{ scale: 0, rotate: -20 }} animate={{ scale: 1, rotate: 0 }} transition={{ type: "spring", stiffness: 340, damping: 18, delay: 0.1 }}>

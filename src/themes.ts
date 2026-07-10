@@ -37,40 +37,51 @@ const netappShadow =
 export const THEMES: Record<ThemeKey, Theme> = {
   default: {
     key: "default",
-    label: "Default",
-    bgImage: "/breakout/backdrop.png",
-    bgSize: "142% auto",
+    label: "Breakout",
+    bgImage: "/breakout/breakout-bg.png",
+    bgSize: "100% auto",
     bgPosition: "center top",
-    bgColor: "#4b4bd6",
+    bgColor: "#443ca8",
     gradientStroke: true,
     iconDark: false,
-    // Anonymous visitor → Clarasight brand mark (purple gradient). Known company
-    // → the visitor's own mark (the sliced-circle "linear" logo).
-    logo: { src: "/breakout/clarasight-mark.png" },
+    // Anonymous visitor → the Breakout brand mark: the "b" lifted from getbreakout.ai's
+    // app icon, set on a deeper cut of the site's own purple. Known company → the
+    // visitor's own mark (the sliced-circle "linear" logo).
+    logo: { src: "/breakout/breakout-b.png", bg: "linear-gradient(145deg,#6a5cf0 0%,#3b2fb0 55%,#241d84 100%)", pad: "27%" },
     logoKnown: { src: "/breakout/logo.png" },
-    // LIVE Clarasight iframe (browsable). The on-scroll states can't be driven here
-    // (a cross-origin iframe never reports its scroll to us) — they fire on the
-    // Ketch/NetApp snapshot themes, which are real scroll containers.
+    // LIVE getbreakout.ai, served through our own origin (see the /site proxy in
+    // vite.config.ts) so the iframe is same-origin: the real site scrolls and hovers
+    // normally, and we can still read its scrollTop to drive the on-scroll shrink.
     pages: {
-      Home: "https://www.clarasight.com/",
-      Pricing: "https://www.clarasight.com/pricing",
-      Blog: "https://www.clarasight.com/blog",
-      Product: "https://www.clarasight.com/product",
+      Home: "/site/",
+      Pricing: "/site/pricing",
+      Blog: "/site/blog",
+      Product: "/site/product/engage",
     },
     vars: {
-      "--bo-fill": "rgba(33,33,33,0.3)",
-      "--bo-blur": "20px",
+      "--bo-fill": "rgba(33,33,33,0.45)",
+      "--bo-blur": "37.5px",
+      "--bo-blur-lg": "47.5px",
       "--bo-border": "transparent",
       "--bo-text": "#ffffff",
+      "--bo-text-dim": "rgba(255,255,255,0.4)",
       "--bo-shadow": "none",
       "--bo-r-pill": "36px",
       "--bo-r-pod": "60px",
       "--bo-r-btn": "36px",
       "--bo-r-card": "15px",
-      "--bo-primary-fill": "rgba(255,255,255,0.4)",
+      "--bo-primary-fill": "rgba(255,255,255,0.2)",
+      "--bo-primary-border": "rgba(255,255,255,0.2)",
       "--bo-primary-text": "#ffffff",
       "--bo-handle": "rgba(33,33,33,0.2)",
       "--bo-sec-hover": "rgba(255,255,255,0.2)",
+      "--bo-bubble": "rgba(255,255,255,0.15)",
+      // Panel chrome: dividers, the history dropdown's active row, and small chip fills
+      // (the "+" disc). Themed, because a white alpha vanishes on a white panel.
+      "--bo-hairline": "rgba(255,255,255,0.1)",
+      "--bo-row-active": "rgba(255,255,255,0.08)",
+      "--bo-chip": "rgba(255,255,255,0.1)",
+      "--bo-shadow-soft": "0px 4px 14px 0px rgba(0,0,0,0.22)",
     },
   },
   ketch: {
@@ -93,17 +104,25 @@ export const THEMES: Record<ThemeKey, Theme> = {
     vars: {
       "--bo-fill": "#ffffff",
       "--bo-blur": "0px",
+      "--bo-blur-lg": "0px",
       "--bo-border": "rgba(0,0,0,0.1)",
       "--bo-text": "#1a1a1a",
+      "--bo-text-dim": "rgba(26,26,26,0.4)",
       "--bo-shadow": ketchShadow,
       "--bo-r-pill": "36px",
       "--bo-r-pod": "60px",
       "--bo-r-btn": "36px",
       "--bo-r-card": "15px",
       "--bo-primary-fill": "#8706ef",
+      "--bo-primary-border": "transparent",
       "--bo-primary-text": "#ffffff",
       "--bo-handle": "rgba(0,0,0,0.12)",
       "--bo-sec-hover": "rgba(0,0,0,0.06)",
+      "--bo-bubble": "rgba(0,0,0,0.06)",
+      "--bo-hairline": "rgba(0,0,0,0.1)",
+      "--bo-row-active": "rgba(0,0,0,0.05)",
+      "--bo-chip": "rgba(0,0,0,0.06)",
+      "--bo-shadow-soft": "0px 4px 14px 0px rgba(0,0,0,0.10)",
     },
   },
   netapp: {
@@ -127,17 +146,25 @@ export const THEMES: Record<ThemeKey, Theme> = {
     vars: {
       "--bo-fill": "#232324",
       "--bo-blur": "0px",
+      "--bo-blur-lg": "0px",
       "--bo-border": "rgba(255,255,255,0.2)",
       "--bo-text": "#ffffff",
+      "--bo-text-dim": "rgba(255,255,255,0.4)",
       "--bo-shadow": netappShadow,
       "--bo-r-pill": "8px",
       "--bo-r-pod": "16px",
       "--bo-r-btn": "12px",
       "--bo-r-card": "16px",
       "--bo-primary-fill": "#ffffff",
+      "--bo-primary-border": "transparent",
       "--bo-primary-text": "#232324",
       "--bo-handle": "rgba(35,35,36,0.2)",
       "--bo-sec-hover": "rgba(255,255,255,0.14)",
+      "--bo-bubble": "rgba(255,255,255,0.14)",
+      "--bo-hairline": "rgba(255,255,255,0.14)",
+      "--bo-row-active": "rgba(255,255,255,0.1)",
+      "--bo-chip": "rgba(255,255,255,0.12)",
+      "--bo-shadow-soft": "0px 4px 14px 0px rgba(0,0,0,0.28)",
     },
   },
 };

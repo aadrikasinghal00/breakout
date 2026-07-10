@@ -1,11 +1,15 @@
 import { AnimatePresence, motion } from "framer-motion";
 import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import { BorderBeam } from "border-beam";
-import { pulsePreset, DEFAULT_AGENT, type NudgeType, type OptionDef, type PulseColor } from "./ConfigPanel";
+import { pulsePreset, DEFAULT_AGENT, type NudgeType, type OptionDef, type PulseColor, type UnreadStyle } from "./ConfigPanel";
 import type { Theme } from "../themes";
-import ChatPanel, { type Msg, type Rep, type Conversation } from "./ChatPanel";
+import ChatPanel, { REP_AVATAR, type Msg, type Rep, type Conversation } from "./ChatPanel";
 import SuccessCard from "./SuccessCard";
 import NudgeCard from "./NudgeCard";
+import { playChime, playTick } from "../sound";
+import { glass } from "../glass";
+
+const REP_NAME = "Sarah";
 
 const morph = { type: "spring", stiffness: 300, damping: 32, mass: 0.9 } as const;
 // A slower, softer settle for the scroll shrink — Apple-like, very velvet.
@@ -20,10 +24,16 @@ const roll = { type: "spring", stiffness: 300, damping: 34, mass: 0.85 } as cons
 // Every view is absolutely anchored to the same bottom-center point and only
 // grows upward — so the input frame stays "set in stone", never repositioning.
 const anchor = "absolute bottom-0 left-0 flex flex-col items-center";
+
+// NOTHING that wraps a glass surface may animate `opacity`. In Chromium any opacity < 1 —
+// on the element itself OR on any ancestor — makes a backdrop root, and the descendant's
+// `backdrop-filter` then samples an empty backdrop. Fading a panel in therefore shows a
+// flat, transparent version of it for the whole animation, with the blur snapping on at
+// the end. `transform` has no such effect, so every entrance here is pure scale + travel.
 const grow = {
-  initial: { opacity: 0, y: 12, scale: 0.98, x: "-50%" },
-  animate: { opacity: 1, y: 0, scale: 1, x: "-50%" },
-  exit: { opacity: 0, y: 8, scale: 0.985, x: "-50%" },
+  initial: { y: 12, scale: 0.96, x: "-50%" },
+  animate: { y: 0, scale: 1, x: "-50%" },
+  exit: { y: 8, scale: 0.96, x: "-50%" },
   transition: { type: "spring", stiffness: 320, damping: 34, mass: 0.8 } as const,
   style: { transformOrigin: "bottom center" } as CSSProperties,
 };
@@ -35,15 +45,9 @@ export const ICONS: Record<string, string> = {
   video: "/breakout/video.svg",
 };
 
-const border: CSSProperties = { borderWidth: 1, borderStyle: "solid", borderColor: "var(--bo-border)" };
-const glass = (r: string): CSSProperties => ({
-  ...border,
-  backgroundColor: "var(--bo-fill)",
-  backdropFilter: "blur(var(--bo-blur))",
-  WebkitBackdropFilter: "blur(var(--bo-blur))",
-  boxShadow: "var(--bo-shadow)",
-  borderRadius: `var(${r})`,
-});
+// Two blur weights, straight from the file: small chrome (pod, pill) uses --bo-blur
+// (Figma 75 → 37.5px CSS), large surfaces (suggestion / chat / nudge panels) use
+// --bo-blur-lg (Figma 95 → 47.5px). Figma's background-blur radius is 2× the CSS one.
 
 // Hover = colour change ONLY. A tint overlay fades in on hover — no scale, no
 // movement, no reflow. `tint` is themed; `dark` is a universal press-darken.
@@ -67,22 +71,36 @@ function readableTextFor(hex: string): { text: string; shadow: string } | null {
 // Contained breathing border glow — border-beam's `pulse-inner` (rides the frame edge, no
 // outward bloom). The colour comes straight from the preset's built-in palette (ocean /
 // sunset / colorful / mono); mono is static, the rest animate their hue cycle.
+//
+// The beam is an OVERLAY, never a wrapper. BorderBeam's own element declares
+// `isolation: isolate`, which makes it a backdrop root — wrap the pod in it and the pod's
+// backdrop-filter has nothing left to sample, so the glass evaporates the moment the
+// pulse switches on. Laying the beam over an empty box instead keeps the pod untouched.
+// The host div is always rendered, so toggling the pulse never re-parents (and therefore
+// never remounts and re-measures) the pod.
 function PulseFrame({ on, color, radius, children }: { on: boolean; color: PulseColor; radius: number; children: ReactNode }) {
-  if (!on) return <>{children}</>;
   const p = pulsePreset(color);
   return (
-    <BorderBeam
-      size="pulse-inner"
-      colorVariant={p.variant}
-      strength={1.15}
-      brightness={2}
-      saturation={1.9}
-      staticColors={p.variant === "mono"}
-      borderRadius={radius}
-      duration={2.8}
-    >
+    <div className="relative">
       {children}
-    </BorderBeam>
+      {on && (
+        <BorderBeam
+          size="pulse-inner"
+          colorVariant={p.variant}
+          strength={1.15}
+          brightness={2}
+          saturation={1.9}
+          staticColors={p.variant === "mono"}
+          borderRadius={radius}
+          duration={2.8}
+          // `position` inline: border-beam injects `[data-beam] { position: relative }`
+          // into <head> at runtime, and that would beat a Tailwind `absolute` class.
+          style={{ position: "absolute", inset: 0, pointerEvents: "none" }}
+        >
+          <div className="size-full" />
+        </BorderBeam>
+      )}
+    </div>
   );
 }
 const podRadius = (theme: Theme) => parseInt(theme.vars["--bo-r-pod"] ?? "60", 10) || 60;
@@ -110,7 +128,7 @@ function DemoPill({ text, filter, strokeCls, glassStyle, tint, onClick }: { text
     if (measureRef.current) setW(measureRef.current.offsetWidth);
   }, [text]);
   return (
-    <motion.button key="demo" type="button" onClick={onClick} className={`${strokeCls} group relative flex h-[28px] items-center justify-center gap-[8px] overflow-hidden pl-[8px] pr-[10px]`} style={glassStyle} initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={slowFade}>
+    <motion.button key="demo" type="button" onClick={onClick} className={`${strokeCls} group relative flex h-[28px] items-center justify-center gap-[8px] overflow-hidden pl-[8px] pr-[10px]`} style={glassStyle} initial={{ scale: 0.9, y: 6 }} animate={{ scale: 1, y: 0 }} exit={{ scale: 0.9, y: 6 }} transition={morph}>
       <Tint color={tint} />
       <img src="/breakout/search.svg" alt="" className="relative size-[14px] shrink-0" style={{ filter }} />
       <motion.span className="relative block h-[16px]" animate={{ width: w ?? "auto" }} transition={{ type: "spring", stiffness: 260, damping: 34, mass: 0.8 }}>
@@ -139,11 +157,15 @@ const CalendarIcon = ({ className }: { className?: string }) => (
   </svg>
 );
 
-// Primary CTA that MORPHS between the full "Book a Call" button and the calendar mark on
-// scroll. On scroll it takes the SECONDARY treatment — the primary fill + border fade to
-// nothing (transparent), the label crossfades to the calendar icon (theme colour, no fill).
-// One element, so the shape springs smoothly. Maintained across every state.
-function PrimaryMorph({ label, compact, theme, hoverBg, onClick }: { label: string; compact: boolean; theme: Theme; hoverBg: string; onClick?: () => void }) {
+// Primary CTA that MORPHS between the full label button and a bare icon chip on scroll.
+// On scroll it takes the SECONDARY treatment — the primary fill + border fade to nothing,
+// the label crossfades to the icon (theme colour, no fill). One element, so the shape
+// springs smoothly. Maintained across every state.
+//
+// The icon is the primary's OWN icon. The calendar mark (Figma 463:432) belongs to
+// "Book a Call" specifically, so it only appears when that option holds the primary slot;
+// an ROI Calculator primary collapses to the calculator, and so on.
+function PrimaryMorph({ label, icon, booking, compact, theme, hoverBg, filter, onClick }: { label: string; icon: string; booking: boolean; compact: boolean; theme: Theme; hoverBg: string; filter: string; onClick?: () => void }) {
   const textRef = useRef<HTMLSpanElement>(null);
   const [tw, setTw] = useState<number>();
   useLayoutEffect(() => {
@@ -159,30 +181,41 @@ function PrimaryMorph({ label, compact, theme, hoverBg, onClick }: { label: stri
   const expandedW = (tw ?? 62) + 28; // px-14 both sides
   const btnR = Math.min(parseInt(theme.vars["--bo-r-btn"] ?? "36", 10) || 36, 18);
   return (
-    <motion.button type="button" onClick={onClick} className="group relative flex shrink-0 items-center justify-center overflow-hidden" style={{ borderWidth: 1, borderStyle: "solid" }} animate={{ width: compact ? 24 : expandedW, height: compact ? 24 : 36, borderRadius: compact ? 12 : btnR, borderColor: compact ? "rgba(255,255,255,0)" : "rgba(255,255,255,0.2)" }} transition={scrollEase}>
-      {/* primary fill — fades to NONE on scroll (compact = secondary treatment, no fill) */}
-      <motion.span className="pointer-events-none absolute inset-0 rounded-[inherit]" style={{ backgroundColor: "var(--bo-primary-fill)" }} animate={{ opacity: compact ? 0 : 1 }} transition={scrollEase} />
+    <motion.button type="button" onClick={onClick} className="group relative flex shrink-0 items-center justify-center overflow-hidden" animate={{ width: compact ? 24 : expandedW, height: compact ? 24 : 36, borderRadius: compact ? 12 : btnR }} transition={scrollEase}>
+      {/* Primary fill + hairline on one layer, so a single opacity retires the whole
+          treatment on scroll — compact is a bare icon chip like the secondaries.
+          NO backdrop-filter of its own: the pod already frosts everything behind it, and a
+          nested backdrop-filter is a backdrop root whose sampled backdrop is empty. Rather
+          than double-frosting, it erases the pod's glass inside the button's rect and the
+          fill composites toward black — Figma reads rgb(126,126,170) here, that bug read
+          rgb(81,78,106). Figma's own 28px background-blur on this layer is a no-op over an
+          already-blurred surface. */}
+      <motion.span className="pointer-events-none absolute inset-0 rounded-[inherit]" style={{ backgroundColor: "var(--bo-primary-fill)", borderWidth: 1, borderStyle: "solid", borderColor: "var(--bo-primary-border)" }} animate={{ opacity: compact ? 0 : 1 }} transition={scrollEase} />
       {/* hover overlay — primary darken when filled, secondary tint when a chip */}
       <span className="pointer-events-none absolute inset-0 rounded-[inherit] opacity-0 transition-opacity duration-200 ease-out group-hover:opacity-100" style={{ backgroundColor: compact ? hoverBg : primaryDark }} />
       <span ref={textRef} className="pointer-events-none invisible absolute whitespace-nowrap text-[14px] font-medium tracking-[-0.14px]">{label}</span>
       <motion.span className="relative whitespace-nowrap text-[14px] font-medium leading-none tracking-[-0.14px]" style={{ color: "var(--bo-primary-text)", textShadow: "var(--bo-primary-text-shadow, 0px 0.3px 0px #ffffff)" }} animate={{ opacity: compact ? 0 : 1 }} transition={{ duration: 0.2, ease: "easeInOut" }}>{label}</motion.span>
-      <motion.span className="pointer-events-none absolute flex items-center justify-center" animate={{ opacity: compact ? 1 : 0 }} transition={{ duration: 0.2, ease: "easeInOut" }}><CalendarIcon className="size-[16px]" /></motion.span>
+      <motion.span className="pointer-events-none absolute flex items-center justify-center" animate={{ opacity: compact ? 1 : 0 }} transition={{ duration: 0.2, ease: "easeInOut" }}>
+        {booking ? <CalendarIcon className="size-[16px]" /> : <img src={ICONS[icon]} alt="" className="size-[16px]" style={{ filter }} />}
+      </motion.span>
     </motion.button>
   );
 }
 
 
 type LogoDef = { src: string; bg?: string; pad?: string };
-function Logo({ px, rep, theme, logo, showRepDot = true }: { px: number; rep?: boolean; theme: Theme; logo?: LogoDef; showRepDot?: boolean }) {
+
+function Logo({ px, rep, theme, logo, showRepDot = true, badge }: { px: number; rep?: boolean; theme: Theme; logo?: LogoDef; showRepDot?: boolean; badge?: number }) {
   // NetApp (logoSquare) → rounded square that follows the pod corner radius. Others → circle.
   const radius = theme.logoSquare ? Math.round(podRadius(theme) * (px / 48)) : px >= 40 ? 56.25 : 39.375;
   const box = px >= 40 ? "inset 0px -2px 3px 0px rgba(255,255,255,0.2), inset 0px 2px 3px 0px rgba(255,255,255,0.2)" : "inset 0px -1.4px 2.1px 0px rgba(255,255,255,0.2), inset 0px 1.4px 2.1px 0px rgba(255,255,255,0.2)";
   const L = logo ?? theme.logo;
+  const k = px / 40; // every offset below is authored against the 40px mark
   return (
     <div className="pointer-events-none relative shrink-0" style={{ width: px, height: px }}>
       <div className="absolute inset-0 overflow-hidden" style={{ borderRadius: radius, boxShadow: "var(--bo-shadow)" }}>
         {rep ? (
-          <div className="absolute inset-0 flex items-center justify-center bg-gradient-to-br from-[#f0a8b8] to-[#b06b8a] font-semibold text-white" style={{ fontSize: px * 0.42 }}>S</div>
+          <img src={REP_AVATAR} alt="" className="absolute inset-0 size-full object-cover" />
         ) : L.bg ? (
           <div className="absolute inset-0 flex items-center justify-center" style={{ background: L.bg }}>
             <img src={L.src} alt="" className="size-full object-contain" style={{ padding: L.pad ?? "26%" }} />
@@ -193,6 +226,23 @@ function Logo({ px, rep, theme, logo, showRepDot = true }: { px: number; rep?: b
         <div className="absolute inset-0" style={{ borderRadius: radius, boxShadow: box }} />
       </div>
       {rep && showRepDot && <span className="absolute block rounded-full" style={{ width: Math.round(px * 0.25), height: Math.round(px * 0.25), right: 0, bottom: 0, background: "#41E2A4" }} />}
+      {/* Unread count (frame 541:647): a 16px glass chip that overhangs the mark's
+          top-right corner. Springs in so the arrival is felt, not just seen. */}
+      <AnimatePresence>
+        {!!badge && (
+          <motion.span
+            key="badge"
+            className="absolute flex items-center justify-center overflow-hidden text-center font-medium text-white"
+            style={{ width: 16 * k, height: 16 * k, left: 28.5 * k, top: -3 * k, borderRadius: 15 * k, fontSize: 12 * k, letterSpacing: 0.12 * k, lineHeight: 1, backgroundColor: "rgba(33,33,33,0.55)", backdropFilter: "blur(38px)", WebkitBackdropFilter: "blur(38px)" }}
+            initial={{ opacity: 0, scale: 0.4 }}
+            animate={{ opacity: 1, scale: 1 }}
+            exit={{ opacity: 0, scale: 0.4 }}
+            transition={{ type: "spring", stiffness: 620, damping: 22, mass: 0.6 }}
+          >
+            {badge}
+          </motion.span>
+        )}
+      </AnimatePresence>
     </div>
   );
 }
@@ -200,13 +250,14 @@ function Logo({ px, rep, theme, logo, showRepDot = true }: { px: number; rep?: b
 
 function MenuPopover({ menu, suggestions, onPick, theme, filter, tint, width }: { menu: OptionDef[]; suggestions: string[]; onPick: (t: string) => void; theme: Theme; filter: string; tint: string; width?: number }) {
   return (
-    <motion.div key="popover" className={`${theme.gradientStroke ? "glass-stroke" : ""} flex flex-col gap-[16px] p-[12px]`} style={{ ...glass("--bo-r-card"), transformOrigin: "bottom center", width }} initial={{ opacity: 0, y: 14, scale: 0.97 }} animate={{ opacity: 1, y: 0, scale: 1 }} exit={{ opacity: 0, y: 14, scale: 0.97 }} transition={morph}>
+    <motion.div key="popover" className={`${theme.gradientStroke ? "glass-stroke" : ""} flex flex-col gap-[16px] p-[12px]`} style={{ ...glass(theme, "--bo-r-card", "--bo-blur-lg"), transformOrigin: "bottom center", width }} initial={{ y: 14, scale: 0.94 }} animate={{ y: 0, scale: 1 }} exit={{ y: 14, scale: 0.94 }} transition={morph}>
+      {/* No "Explore more" caption (frame 544:962) — the chips speak for themselves;
+          the block just carries the 4px inset the label used to provide. */}
       {menu.length > 0 && (
-        <div className="flex flex-col gap-[8px] pl-[4px]">
-          <p className="text-[12px] font-medium leading-none opacity-[0.54]" style={{ color: "var(--bo-text)" }}>Explore more</p>
+        <div className="flex flex-col pl-[4px] pt-[4px]">
           <div className="flex flex-wrap gap-[10px]">
             {menu.map((o) => (
-              <button key={o.key} type="button" onMouseDown={(e) => e.preventDefault()} onClick={() => onPick(o.label)} className="group relative flex items-center gap-[8px] overflow-hidden rounded-[40px] px-[10px] py-[4px]" style={{ backgroundColor: "var(--bo-sec-hover)" }}>
+              <button key={o.key} type="button" onMouseDown={(e) => e.preventDefault()} onClick={() => onPick(o.label)} className="group relative flex items-center justify-center gap-[8px] overflow-hidden rounded-[40px] px-[10px] py-[4px]" style={{ backgroundColor: "var(--bo-bubble)" }}>
                 <Tint color={tint} />
                 <img src={ICONS[o.icon]} alt="" className="relative size-[14px]" style={{ filter }} />
                 <span className="relative whitespace-nowrap text-[14px] font-medium leading-[1.45]" style={{ color: "var(--bo-text)" }}>{o.label}</span>
@@ -248,6 +299,8 @@ export default function BreakoutWidget({
   theme,
   nudge = false,
   nudgeType = "card",
+  unread = false,
+  unreadStyle = "badge",
   pulse = false,
   pulseColor = "ocean",
 }: {
@@ -265,11 +318,16 @@ export default function BreakoutWidget({
   theme: Theme;
   nudge?: boolean;
   nudgeType?: NudgeType;
+  unread?: boolean;
+  unreadStyle?: UnreadStyle;
   pulse?: boolean;
   pulseColor?: PulseColor;
 }) {
   const [focused, setFocused] = useState(false);
   const [hovered, setHovered] = useState(false);
+  const [unreadDismissed, setUnreadDismissed] = useState(false);
+  // Clip the pod only while its width is in motion — see the collapse comment below.
+  const [clipPod, setClipPod] = useState(false);
   const [inputValue, setInputValue] = useState("");
   const inputRef = useRef<HTMLInputElement>(null);
   const [chatOpen, setChatOpen] = useState(false);
@@ -308,19 +366,52 @@ export default function BreakoutWidget({
 
   const currentSug = suggestions[sugIdx % suggestions.length] ?? "Show me a demo video";
   const nudgeActive = nudge && !nudgeDismissed;
-  const committed = focused;
-  // On scroll the default widget collapses to its compact bar (mark + icon chips,
-  // design 327:367). Focusing the input, or hovering, un-compacts it.
-  const compact = (scrolled || scrolledLocal) && !committed;
-  // The input frame expands on HOVER (and stays open while focused/typing).
+  // On scroll the widget collapses to its compact bar (mark + icon chips, design 327:367).
+  // Focusing the input un-compacts it; the page settling back to rest restores it.
+  const compact = (scrolled || scrolledLocal) && !focused;
+  // The input frame expands on HOVER, and stays open while focused/typing.
   const expanded = focused || (hovered && !compact);
+  // The suggestion panel is a CLICK affordance, never a hover one: it opens the moment
+  // the caret lands in the field — before a single character is typed — and closes when
+  // the field loses focus (which a click anywhere outside the widget forces).
+  const menuOpen = focused;
   // "Just ask" state (frame 482:436): no primary AND no secondaries → the pod is a
   // permanent "Ask anything…" input instead of an empty (broken) pill.
   const noModules = !primary && secondaries.length === 0;
   const showFullInput = noModules || expanded;
-  // "Ask anything" state, scrolled, and the config says drop it on scroll → hide the base.
-  const hideAskOnScroll = noModules && compact && !askOnScroll;
-  const rep: Rep = repActive ? { name: "Sarah" } : null;
+  // Scrolled, "Ask anything" only. `keep` shrinks the pod to the 36px scroll bar; `drop`
+  // retires it entirely and lets the mark shrink and re-centre on its own.
+  const askDropped = noModules && compact && !askOnScroll;
+  const askCompact = noModules && compact && askOnScroll;
+  const rep: Rep = repActive ? { name: REP_NAME } : null;
+  const unreadLive = unread && !unreadDismissed && !chatOpen && !success;
+  const showBadge = unreadLive && unreadStyle === "badge";
+  const showUnreadCard = unreadLive && unreadStyle === "notification";
+
+  // A fresh unread message re-arms the nudge and announces itself: the count badge gets
+  // a soft tactile tick, the notification card a gentle chime. Autoplay policy may mute
+  // the very first one — `sound.ts` fails silently by design.
+  useEffect(() => {
+    setUnreadDismissed(false);
+    if (!unread) return;
+    if (unreadStyle === "badge") playTick();
+    else playChime();
+  }, [unread, unreadStyle]);
+
+  // Handing the conversation from the AI to a human mid-chat is announced inline —
+  // "Sarah joined the conversation" (frame 541:713). Refs keep the effect keyed purely
+  // on the rep flipping on, so re-renders never re-announce.
+  const chatOpenRef = useRef(false);
+  chatOpenRef.current = chatOpen;
+  const firstRepRun = useRef(true);
+  useEffect(() => {
+    if (firstRepRun.current) {
+      firstRepRun.current = false;
+      return;
+    }
+    if (!repActive || !chatOpenRef.current) return;
+    setMessages((m) => [...m, { from: "system", name: REP_NAME, text: "joined the conversation" }]);
+  }, [repActive]);
   // No brand logo → the default AI-agent mark. Known company → the visitor's own mark;
   // otherwise the brand mark.
   const activeLogo = !useLogo
@@ -345,6 +436,7 @@ export default function BreakoutWidget({
     setChatOpen(true);
     setMinimized(false);
     setNudgeDismissed(true);
+    setUnreadDismissed(true);
     setInputValue("");
     setMessages([
       { from: "ai", text: repActive ? "Hi Maya, Sarah here from the team 👋\n\nI see you're on the Pricing Page — want a hand picking the right plan?" : "Hi Maya, you're speaking with Breakout AI Agent.\n\nI see you're on the Pricing Page, want me to give you an in-depth suggestion of which pricing will be best for you?" },
@@ -361,12 +453,30 @@ export default function BreakoutWidget({
       { from: "ai", text: `Picking up where we left off on “${c.title}”. Want me to continue from here?`, cta: "Book a call" },
     ]);
   };
+  // "New Conversation" in the history dropdown → a clean slate, same open panel.
+  const newConversation = () => {
+    setThinking(false);
+    setMessages([{ from: "ai", text: repActive ? `Hi Maya, ${REP_NAME} here from the team 👋\n\nWhat can I help you with?` : "Hi Maya, you're speaking with Breakout AI Agent.\n\nWhat would you like to know?" }]);
+  };
   const closeChat = () => { setChatOpen(false); setMinimized(false); setScrolledLocal(false); setSuccess(false); setThinking(false); setFocused(false); setMessages([]); };
   const minimizeChat = () => { setChatOpen(false); setSuccess(false); setFocused(false); setScrolledLocal(false); setMinimized(true); };
   // While minimized the widget looks like its resting state; interacting REOPENS the same
   // conversation (messages preserved) rather than starting a new one, optionally sending text.
   const continueChat = (text: string) => { setMinimized(false); setChatOpen(true); if (text.trim()) sendInChat(text.trim()); };
   const openOrContinue = (text: string) => (minimized ? continueChat(text) : openChat(text));
+  // "Book a Call" is a booking, not a conversation: pressing it from the resting pod goes
+  // straight to the confirmation card. Any other primary (ROI Calculator, Video Library…)
+  // is a topic, so it opens the chat on that topic.
+  const bookNow = () => {
+    setChatOpen(false);
+    setMinimized(false);
+    setThinking(false);
+    setNudgeDismissed(true);
+    setUnreadDismissed(true);
+    setFocused(false);
+    setSuccess(true);
+  };
+  const activatePrimary = () => (primary?.key === "book_call" ? bookNow() : openOrContinue(""));
 
   // Live refs so the window/document listeners always read the current phase.
   const chatVisibleRef = useRef(false);
@@ -378,6 +488,9 @@ export default function BreakoutWidget({
     // Scrolling / clicking the config panel must NOT drive the widget's scroll state.
     const ignore = (t: EventTarget | null) => inside(t) || (t instanceof Element && !!t.closest("[data-config-panel]"));
     const toMinimized = () => { setChatOpen(false); setSuccess(false); setFocused(false); setScrolledLocal(false); setMinimized(true); };
+    // Back to the resting pod: drop the caret so the suggestion panel closes with it.
+    // Blurring the DOM node (not just the flag) keeps React and the browser in step.
+    const toResting = () => { inputRef.current?.blur(); setFocused(false); };
     let idle: number | undefined;
     // Scrolling the page/backdrop shrinks the widget's on-scroll state, then restores
     // ~1s after scrolling stops. Never fires from the config panel or an open chat.
@@ -386,13 +499,16 @@ export default function BreakoutWidget({
       if (chatVisibleRef.current) return; // don't compact while the chat panel is open
       setScrolledLocal(true);
       window.clearTimeout(idle);
-      idle = window.setTimeout(() => setScrolledLocal(false), 1000);
+      idle = window.setTimeout(() => setScrolledLocal(false), 900);
     };
-    // Clicking outside the widget (on our page) collapses an open chat → 435:233.
-    const onDown = (e: MouseEvent) => { if (ignore(e.target)) return; if (chatVisibleRef.current) toMinimized(); };
-    // Engaging the site behind (a cross-origin iframe steals window focus) is the only
-    // signal we get for "touched the page" there — collapse a chat, else treat as scroll.
-    const onBlur = () => { if (chatVisibleRef.current) toMinimized(); else onShrink(); };
+    // Clicking outside the widget collapses an open chat (→ 435:233), or dismisses the
+    // suggestion panel back to the resting pod.
+    const onDown = (e: MouseEvent) => { if (ignore(e.target)) return; if (chatVisibleRef.current) toMinimized(); else toResting(); };
+    // Clicking into the backdrop iframe moves focus off our window; mousedown never
+    // reaches us from that document, so this is our only "touched the page" signal.
+    // Same two outcomes — the on-scroll shrink is driven by the iframe's real scroll
+    // (see App), not by focus changes.
+    const onBlur = () => { if (chatVisibleRef.current) toMinimized(); else toResting(); };
     document.addEventListener("mousedown", onDown);
     window.addEventListener("blur", onBlur);
     window.addEventListener("scroll", onShrink, true); // capture → catches inner scroll containers
@@ -417,12 +533,29 @@ export default function BreakoutWidget({
   const enterHover = () => { window.clearTimeout(hoverTimer.current); setHovered(true); };
   const leaveHover = () => { hoverTimer.current = window.setTimeout(() => setHovered(false), 130); };
 
+  // ---- Pod metrics ----------------------------------------------------------------
+  // At rest: the bare "Ask anything" pod (frame 538:169) is a fixed 364 wide and insets
+  // its text by 6 + 12; every other pod hugs its content and insets the caret by 15
+  // (frame 544:986), with the chips supplying the remaining gaps via secPadX.
+  //
+  // Scrolled (frame 504:313): the pod itself carries px 8 / py 6 and a 4px gap between
+  // 24px chips — no chip inset at all. A lone secondary with no primary tightens to px 6
+  // so the pod comes out 36×36, a square with the icon dead centre.
+  const loneSecondary = !primary && secondaries.length === 1;
+  const inputW = noModules ? (askCompact ? 150 : 328) : 200;
+  const compactPadX = askCompact ? 12 : loneSecondary ? 6 : 8;
+  const podPadLeft = compact ? compactPadX : noModules ? 18 : showFullInput ? 15 : 6;
+  const podPadRight = compact ? compactPadX : noModules ? 18 : 6;
+  const secPadX = compact || showFullInput ? 0 : loneSecondary ? 2 : 8;
+  // With no chip inset on scroll, the primary needs its own 4px gap off the secondaries.
+  const primaryMarginLeft = secondaries.length === 0 ? 0 : compact ? 4 : showFullInput ? 6 : 0;
+
   return (
     <div ref={rootRef} className="relative" style={{ ...(theme.vars as CSSProperties), ...(primaryColor ? { "--bo-primary-fill": primaryColor } as CSSProperties : {}), ...(primaryColor && readableTextFor(primaryColor) ? { "--bo-primary-text": readableTextFor(primaryColor)!.text, "--bo-primary-text-shadow": readableTextFor(primaryColor)!.shadow } as CSSProperties : {}), ...(font ? { fontFamily: `'${font}', system-ui, sans-serif` } : {}) }} onMouseEnter={() => setScrolledLocal(false)} onMouseLeave={() => setHovered(false)}>
       <AnimatePresence initial={false}>
         {view === "success" && <motion.div key="success" className={anchor} {...grow}><SuccessCard theme={theme} logo={activeLogo} onClose={closeChat} onContinue={closeChat} /></motion.div>}
 
-        {view === "chat" && <motion.div key="chat" className={anchor} {...grow}><ChatPanel theme={theme} logo={activeLogo} rep={rep} messages={messages} thinking={thinking} onSend={sendInChat} onCta={() => setSuccess(true)} onClose={closeChat} onMinimize={minimizeChat} cta={primary?.label} onSelectHistory={selectHistory} /></motion.div>}
+        {view === "chat" && <motion.div key="chat" className={anchor} {...grow}><ChatPanel theme={theme} logo={activeLogo} rep={rep} messages={messages} thinking={thinking} onSend={sendInChat} onCta={() => setSuccess(true)} onClose={closeChat} onMinimize={minimizeChat} cta={primary?.label} onSelectHistory={selectHistory} onNewConversation={newConversation} /></motion.div>}
 
         {view === "full" && (
           <motion.div key="full" className="absolute bottom-0 left-0" {...grow}>
@@ -432,51 +565,84 @@ export default function BreakoutWidget({
             <div className="relative flex flex-col items-center">
               <div className="flex flex-col items-center">
                 <div ref={baseRef} className="flex items-center gap-[8px]">
-                  {/* Mark morphs 40→28 on scroll — EXCEPT in the "Ask anything" state, where
-                      it stays full size and reserves the pod's height (48) so dropping the pod
-                      on scroll never shrinks or re-drops the logo. */}
-                  <motion.div className="flex shrink-0 items-center justify-center overflow-hidden" animate={{ width: compact && !noModules ? 28 : 40, height: compact && !noModules ? 36 : 48 }} transition={scrollEase}>
-                    <motion.div className="origin-center shrink-0" animate={{ scale: compact && !noModules ? 0.7 : 1 }} transition={scrollEase}>
-                      <Logo px={40} rep={repActive} theme={theme} logo={activeLogo} />
+                  {/* Mark morphs 40→28 on every scroll state, "Ask anything" included —
+                      when the pod is dropped the row is just the mark, so it re-centres
+                      itself. No `overflow-hidden`: the unread badge overhangs the corner. */}
+                  <motion.div className="flex shrink-0 items-center justify-center" animate={{ width: compact ? 28 : 40, height: compact ? 36 : 48 }} transition={scrollEase}>
+                    <motion.div className="origin-center shrink-0" animate={{ scale: compact ? 0.7 : 1 }} transition={scrollEase}>
+                      <Logo px={40} rep={repActive} theme={theme} logo={activeLogo} badge={showBadge ? 1 : 0} />
                     </motion.div>
                   </motion.div>
-                  {/* Empty state, scrolled, "keep on scroll" off → hide the pod but keep its
-                      footprint (fade in place) so the logo mark never shifts — stays put. */}
-                  <motion.div animate={{ opacity: hideAskOnScroll ? 0 : 1 }} transition={scrollEase} style={{ pointerEvents: hideAskOnScroll ? "none" : "auto" }}>
+                  {/* "Ask anything", scrolled, keep-on-scroll off → the pod collapses its
+                      width to nothing and eats the row gap, leaving the mark alone and
+                      centred. It CLIPS rather than fades: an opacity animation here would
+                      strip the pod's own backdrop-filter for the whole transition (see the
+                      note on `grow`). The clip is lifted once the pod is back at rest, so
+                      its drop shadow isn't cropped on the flat themes. */}
+                  <motion.div
+                    initial={false}
+                    animate={{ width: askDropped ? 0 : "auto", marginLeft: askDropped ? -8 : 0 }}
+                    transition={scrollEase}
+                    onAnimationStart={() => setClipPod(true)}
+                    onAnimationComplete={() => setClipPod(askDropped)}
+                    style={{ overflow: clipPod || askDropped ? "hidden" : "visible", pointerEvents: askDropped ? "none" : "auto" }}
+                  >
                   <PulseFrame on={pulse} color={pulseColor} radius={podRadius(theme)}>
-                    <motion.div className={`${strokeCls} flex items-center overflow-hidden ${compact ? "gap-[4px]" : "gap-[6px]"} ${showFullInput ? "" : "cursor-text"}`} style={glass("--bo-r-pod")} animate={{ height: compact && !noModules ? 36 : 48, paddingTop: 6, paddingBottom: 6, paddingLeft: compact && !noModules ? 8 : showFullInput ? 15 : 6, paddingRight: compact && !noModules ? 8 : 6 }} transition={scrollEase} onHoverStart={enterHover} onHoverEnd={leaveHover} onClick={() => inputRef.current?.focus()}>
-                      {/* Input stays mounted (width springs 0↔190) so expanding never
+                    <motion.div className={`${strokeCls} flex items-center overflow-hidden ${showFullInput ? "" : "cursor-text"}`} style={glass(theme, "--bo-r-pod")} animate={{ height: compact ? 36 : 48, paddingTop: 6, paddingBottom: 6, paddingLeft: podPadLeft, paddingRight: podPadRight }} transition={scrollEase} onHoverStart={enterHover} onHoverEnd={leaveHover} onClick={() => inputRef.current?.focus()}>
+                      {/* Input stays mounted (width springs 0↔inputW) so expanding never
                           inserts a node mid-animation — no reflow stutter. It's inert
                           (pointer-events none, width 0) at rest, so no layout shift. */}
-                      <motion.div className="overflow-hidden" initial={false} animate={{ width: showFullInput ? 200 : 0, opacity: showFullInput ? 1 : 0, marginRight: showFullInput ? 2 : compact ? -4 : -6 }} transition={hoverEase} style={{ pointerEvents: showFullInput ? "auto" : "none" }}>
-                        <input ref={inputRef} value={inputValue} onChange={(e) => setInputValue(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter" && inputValue.trim()) openOrContinue(inputValue.trim()); }} className="w-[200px] bg-transparent text-[14px] font-medium leading-none tracking-[-0.14px] outline-none placeholder:text-[var(--bo-text)] placeholder:opacity-30" style={{ color: "var(--bo-text)", caretColor: "var(--bo-text)" }} placeholder={minimized ? "Continue Conversations" : noModules ? "Ask anything..." : "Type something here"} onFocus={() => setFocused(true)} onBlur={() => setFocused(false)} tabIndex={showFullInput ? 0 : -1} />
+                      <motion.div className="overflow-hidden" initial={false} animate={{ width: showFullInput ? inputW : 0, opacity: showFullInput ? 1 : 0, marginRight: showFullInput ? 2 : 0 }} transition={hoverEase} style={{ pointerEvents: showFullInput ? "auto" : "none" }}>
+                        {/* Placeholder opacity is a state: 100% at rest, 95% hovered, 75% once
+                            the caret lands in the field (frame 544:988). */}
+                        <motion.input ref={inputRef} value={inputValue} onChange={(e) => setInputValue(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter" && inputValue.trim()) openOrContinue(inputValue.trim()); }} className="bo-input bg-transparent text-[14px] font-medium leading-none tracking-[-0.14px] outline-none" initial={false} animate={{ width: inputW }} transition={scrollEase} style={{ color: "var(--bo-text)", caretColor: "var(--bo-text)", "--bo-ph-op": focused ? 0.75 : hovered ? 0.95 : 1 } as CSSProperties} placeholder={minimized ? "Continue Conversation" : "Ask anything..."} onFocus={() => setFocused(true)} onBlur={() => setFocused(false)} tabIndex={showFullInput ? 0 : -1} />
                       </motion.div>
 
+                      {/* At rest the secondaries carry their own inset (frame 541:399: px 8,
+                          gap 4) — that inset IS the spacing to the pod edge and the primary.
+                          Expanded they tuck against the input at gap 6; a lone secondary with
+                          no primary drops to px 2 so the pod reads as a circle (frame 541:513).
+                          On scroll the inset goes to zero: there the POD owns the padding. */}
                       {secondaries.length > 0 && (
-                        <div className={`flex items-center ${compact ? "gap-[4px]" : "gap-[6px]"}`} style={{ marginLeft: !compact && !showFullInput ? 8 : 0 }}>
+                        // `columnGap` is not in framer's animatable set — it writes the value
+                        // once at mount and never touches it again, so the gap silently never
+                        // changed. It rides a plain CSS transition instead; padding still springs.
+                        <motion.div
+                          className="flex items-center"
+                          initial={false}
+                          animate={{ paddingLeft: secPadX, paddingRight: secPadX }}
+                          transition={scrollEase}
+                          style={{ columnGap: !compact && showFullInput ? 6 : 4, transitionProperty: "column-gap", transitionDuration: "260ms", transitionTimingFunction: "cubic-bezier(0.22,1,0.36,1)" }}
+                        >
                           {secondaries.map((o) => <MorphChip key={o.key} icon={o.icon} compact={compact} hoverBg={secHover} filter={filter} onClick={() => openOrContinue("")} />)}
-                        </div>
+                        </motion.div>
                       )}
 
                       {/* Primary morphs to the calendar chip on scroll (Figma 463:432) —
                           same 24px as the secondaries. */}
-                      {primary && <PrimaryMorph key="primary" label={primary.label} compact={compact} theme={theme} hoverBg={secHover} onClick={() => openOrContinue("")} />}
+                      {primary && (
+                        <motion.div className="flex shrink-0" initial={false} animate={{ marginLeft: primaryMarginLeft }} transition={scrollEase}>
+                          <PrimaryMorph key="primary" label={primary.label} icon={primary.icon} booking={primary.key === "book_call"} compact={compact} theme={theme} hoverBg={secHover} filter={filter} onClick={activatePrimary} />
+                        </motion.div>
+                      )}
                     </motion.div>
                   </PulseFrame>
                   </motion.div>
                 </div>
               </div>
 
-              {/* TOP SLOT — suggestion / nudge / menu. Removed on scroll. */}
+              {/* TOP SLOT — menu / unread / nudge / suggestion, in that priority. Removed on scroll. */}
               <div className="absolute bottom-[calc(100%+10px)] left-1/2 -translate-x-1/2">
                 <motion.div animate={{ opacity: compact ? 0 : 1 }} transition={slowFade} style={{ pointerEvents: compact ? "none" : "auto" }}>
                   <AnimatePresence initial={false} mode="wait">
-                    {committed ? (
+                    {menuOpen ? (
                       <MenuPopover key="popover" menu={menu} suggestions={suggestions} onPick={openOrContinue} theme={theme} filter={filter} tint={glassTint} width={baseW} />
+                    ) : showUnreadCard ? (
+                      <NudgeCard key="unread" type="notification" theme={theme} rep={REP_NAME} onCta={() => openChat("")} onClose={() => setUnreadDismissed(true)} />
                     ) : nudgeActive ? (
                       <NudgeCard key="nudge" type={nudgeType} theme={theme} onCta={() => openChat("")} onClose={() => setNudgeDismissed(true)} />
                     ) : (
-                      <DemoPill key="demo" text={currentSug} filter={filter} strokeCls={strokeCls} glassStyle={glass("--bo-r-pill")} tint={glassTint} onClick={() => openOrContinue(currentSug)} />
+                      <DemoPill key="demo" text={currentSug} filter={filter} strokeCls={strokeCls} glassStyle={glass(theme, "--bo-r-pill")} tint={glassTint} onClick={() => openOrContinue(currentSug)} />
                     )}
                   </AnimatePresence>
                 </motion.div>

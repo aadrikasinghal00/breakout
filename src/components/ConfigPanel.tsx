@@ -27,7 +27,9 @@ export const OPTIONS: OptionDef[] = [
   { key: "summarize", label: "Summarize", icon: "doc" },
 ];
 
-export type NudgeType = "card" | "visual" | "mediatop" | "text" | "testimonial" | "multi";
+// "notification" is deliberately absent from NUDGE_TYPES — it isn't a promo nudge the
+// customer picks, it's the shape an *unread message* takes (see UNREAD_STYLES).
+export type NudgeType = "card" | "visual" | "mediatop" | "text" | "testimonial" | "multi" | "notification";
 export const NUDGE_TYPES: { key: NudgeType; label: string }[] = [
   { key: "card", label: "Card" },
   { key: "visual", label: "Visual" },
@@ -35,6 +37,15 @@ export const NUDGE_TYPES: { key: NudgeType; label: string }[] = [
   { key: "text", label: "Text" },
   { key: "testimonial", label: "Testimonial" },
   { key: "multi", label: "Multi-CTA" },
+];
+
+/** How an unread message from the rep (or the agent) announces itself.
+ *  Frame 541:552 → a count badge on the mark, with a soft tactile tick.
+ *  Frame 541:778 → a notification card above the pod, with a gentle chime. */
+export type UnreadStyle = "badge" | "notification";
+export const UNREAD_STYLES: { key: UnreadStyle; label: string; hint: string }[] = [
+  { key: "badge", label: "Count badge", hint: "Soft tactile tick" },
+  { key: "notification", label: "Notification", hint: "Message preview card" },
 ];
 
 // Pulse-gradient presets = border-beam's own built-in palettes (no custom colours / no
@@ -66,6 +77,9 @@ export type Config = {
   page: string;
   visitor: string;
   repOnline: boolean;
+  /** An unread message is waiting (from the rep, or from the agent). */
+  unread: boolean;
+  unreadStyle: UnreadStyle;
   /** false → show DEFAULT_AGENT instead of the brand logo mark. */
   useLogo: boolean;
   nudge: boolean;
@@ -87,6 +101,8 @@ export const DEFAULT_CONFIG: Config = {
   page: "Home",
   visitor: "Anonymous",
   repOnline: false,
+  unread: false,
+  unreadStyle: "badge",
   useLogo: true,
   nudge: false,
   nudgeType: "card",
@@ -129,6 +145,9 @@ const Repeat = () => (
 );
 const Gear = ({ className }: { className?: string }) => (
   <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="3.2" /><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" /></svg>
+);
+const Revert = () => (
+  <svg className="size-[13px]" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 12a9 9 0 1 0 3-6.7" /><path d="M3 4v4h4" /></svg>
 );
 const Chevron = ({ className }: { className?: string }) => (
   <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><path d="M6 9l6 6 6-6" /></svg>
@@ -315,6 +334,10 @@ function FontPicker({ value, onChange }: { value: string; onChange: (v: string) 
 
 function PanelBody({ config, onChange }: { config: Config; onChange: (next: Config) => void }) {
   const set = (patch: Partial<Config>) => onChange({ ...config, ...patch });
+  // Cheap deep-equal: Config is a flat bag of primitives plus the `slots` record.
+  const isDefault =
+    JSON.stringify({ ...config, slots: undefined }) === JSON.stringify({ ...DEFAULT_CONFIG, slots: undefined }) &&
+    OPTIONS.every((o) => config.slots[o.key] === DEFAULT_CONFIG.slots[o.key]);
   // Every block off → the widget is in its "Ask anything" state; expose the on-scroll choice.
   const allBlocksOff = !OPTIONS.some((o) => config.slots[o.key] === "1st" || config.slots[o.key] === "2nd");
   const num = (n: number) => (
@@ -349,6 +372,27 @@ function PanelBody({ config, onChange }: { config: Config; onChange: (next: Conf
       <Group label="Visitor"><Dropdown value={config.visitor} onChange={(v) => set({ visitor: v })} /></Group>
 
       <Row label="Sales rep online"><Toggle on={config.repOnline} onChange={(v) => set({ repOnline: v })} /></Row>
+
+      <Row label="Unread message"><Toggle on={config.unread} onChange={(v) => set({ unread: v })} /></Row>
+      <AnimatePresence initial={false}>
+        {config.unread && (
+          <motion.div key="unread-styles" initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: "auto" }} exit={{ opacity: 0, height: 0 }} transition={springSoft} className="overflow-hidden">
+            <div className="flex gap-[6px] pt-[2px]">
+              {UNREAD_STYLES.map((u) => (
+                <button
+                  key={u.key}
+                  type="button"
+                  onClick={() => set({ unreadStyle: u.key })}
+                  className={`flex flex-1 flex-col items-start gap-[2px] rounded-[9px] px-[10px] py-[8px] text-left transition-colors ${config.unreadStyle === u.key ? "bg-[#111] text-white" : "bg-[#f0f0f0] text-[#4a4a4a] hover:bg-[#e7e7e7]"}`}
+                >
+                  <span className="text-[12px] font-medium">{u.label}</span>
+                  <span className={`text-[10px] ${config.unreadStyle === u.key ? "text-white/60" : "text-[#9a9a9a]"}`}>{u.hint}</span>
+                </button>
+              ))}
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       <div className="h-px bg-[#eee]" />
 
@@ -445,6 +489,17 @@ function PanelBody({ config, onChange }: { config: Config; onChange: (next: Conf
       <Group label="Font">
         <FontPicker value={config.font} onChange={(v) => { loadFont(v); set({ font: v }); }} />
       </Group>
+
+      <div className="h-px bg-[#eee]" />
+
+      <button
+        type="button"
+        onClick={() => onChange(DEFAULT_CONFIG)}
+        disabled={isDefault}
+        className="flex w-full items-center justify-center gap-[6px] rounded-[10px] py-[10px] text-[12px] font-medium transition-colors enabled:bg-[#f0f0f0] enabled:text-[#4a4a4a] enabled:hover:bg-[#e7e7e7] disabled:cursor-default disabled:bg-[#f7f7f7] disabled:text-[#c0c0c0]"
+      >
+        <Revert /> {isDefault ? "Already at defaults" : "Reset to defaults"}
+      </button>
     </div>
   );
 }
@@ -454,9 +509,11 @@ export default function ConfigPanel({ config, onChange }: { config: Config; onCh
 
   return (
     <div style={{ fontFamily: "-apple-system, 'SF Pro Display', system-ui, sans-serif" }}>
-      {/* Gear — collapses / expands the panel */}
+      {/* Gear — collapses / expands the panel. Tagged as panel chrome so the widget's
+          click-outside handler doesn't read a settings click as "the visitor left the chat". */}
       <motion.button
         type="button"
+        data-config-panel
         aria-label="Settings"
         onClick={() => setOpen((o) => !o)}
         className="fixed left-[20px] top-[20px] z-40 flex size-[44px] items-center justify-center rounded-full bg-white text-[#1d1d1d] shadow-[0_8px_24px_-6px_rgba(0,0,0,0.3)] ring-1 ring-black/5"
@@ -470,8 +527,9 @@ export default function ConfigPanel({ config, onChange }: { config: Config; onCh
       <AnimatePresence>
         {open && (
           <>
-            {/* invisible click-catcher — no page dimming, just close-on-outside-click */}
-            <div onClick={() => setOpen(false)} className="fixed inset-0 z-30" />
+            {/* Invisible click-catcher — no page dimming, just close-on-outside-click.
+                Also panel chrome: dismissing the settings must not minimize an open chat. */}
+            <div data-config-panel onClick={() => setOpen(false)} className="fixed inset-0 z-30" />
             <motion.div
               data-config-panel
               initial={{ opacity: 0, y: -8, scale: 0.97 }}

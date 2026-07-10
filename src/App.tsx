@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import BreakoutWidget from "./components/BreakoutWidget";
 import ConfigPanel, {
   type Config,
@@ -15,20 +15,53 @@ export default function App() {
   const [config, setConfig] = useState<Config>(DEFAULT_CONFIG);
   const [scrolled, setScrolled] = useState(false);
 
-  useEffect(() => {
-    // Direction-aware: scrolling DOWN shrinks the widget; scrolling UP (or near the
-    // top) restores the default state.
-    let last = window.scrollY;
+  const frameRef = useRef<HTMLIFrameElement>(null);
+  const idle = useRef<number | undefined>(undefined);
+
+  // Direction doesn't matter: ANY scroll holds the compact bar, and the widget only
+  // returns to its resting state once the page has actually stopped moving. (Scrolling
+  // back up used to restore it mid-flick, which read as the widget flapping open.)
+  const watchScroll = useCallback((on: (fn: () => void) => () => void) => {
     const onScroll = () => {
-      const y = window.scrollY;
-      if (y < 60) setScrolled(false);
-      else if (y > last + 4) setScrolled(true);
-      else if (y < last - 4) setScrolled(false);
-      last = y;
+      setScrolled(true);
+      window.clearTimeout(idle.current);
+      idle.current = window.setTimeout(() => setScrolled(false), 900);
     };
-    window.addEventListener("scroll", onScroll, { passive: true });
-    return () => window.removeEventListener("scroll", onScroll);
+    const off = on(onScroll);
+    return () => { window.clearTimeout(idle.current); off(); };
   }, []);
+
+  useEffect(
+    () =>
+      watchScroll((fn) => {
+        window.addEventListener("scroll", fn, { passive: true });
+        return () => window.removeEventListener("scroll", fn);
+      }),
+    [watchScroll],
+  );
+
+  // The proxied site is same-origin, so its scroll is ours to read. If the visitor
+  // clicks through to a real getbreakout.ai URL the frame goes cross-origin and the
+  // access throws — we just stop listening rather than break the page.
+  const bindFrameScroll = useCallback(() => {
+    const win = frameRef.current?.contentWindow;
+    try {
+      if (!win || !win.document) return;
+      setScrolled(false);
+      return watchScroll((fn) => {
+        win.addEventListener("scroll", fn, { passive: true });
+        return () => win.removeEventListener("scroll", fn);
+      });
+    } catch {
+      return;
+    }
+  }, [watchScroll]);
+
+  useEffect(() => {
+    const detach = bindFrameScroll();
+    return detach;
+    // Re-bind whenever the frame swaps documents (theme / page change).
+  }, [bindFrameScroll, config.theme, config.page]);
 
   const theme = THEMES[config.theme];
   const siteUrl = theme.pages[config.page] ?? theme.pages.Home;
@@ -56,21 +89,20 @@ export default function App() {
           <img key={theme.key} src={theme.pageImage} alt="Site preview" className="w-full select-none" draggable={false} />
         </div>
       ) : (
-        /* LIVE website backdrop that ALSO scrolls AND drives the on-scroll state. The
-           iframe is a bit taller than the viewport and sits inside a scroll container;
-           `pointer-events: none` lets the wheel scroll the container (so the real page
-           visibly moves) while the widget listens to that same scroll. Real live site +
-           it scrolls + on-scroll shrink — no static image. (Kept modest so the site's
-           100vh hero isn't distorted.) */
-        <div className="fixed inset-0 z-0 overflow-y-scroll [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
-          <iframe
-            key={theme.key}
-            src={siteUrl}
-            title="Site preview"
-            className="pointer-events-none block w-full border-0"
-            style={{ height: "135vh" }}
-          />
-        </div>
+        /* LIVE website backdrop, served same-origin through the /site proxy. It fills the
+           viewport exactly, so the site's own `100vh` sections and sticky headers are
+           undistorted; it scrolls natively and keeps every one of its hover states; and
+           because it shares our origin we can read its scroll to drive the widget's
+           on-scroll shrink. The widget sits above it on its own layer, so nothing about
+           the widget's hover or click behaviour is contested. */
+        <iframe
+          key={`${theme.key}-${config.page}`}
+          ref={frameRef}
+          src={siteUrl}
+          title="Site preview"
+          onLoad={bindFrameScroll}
+          className="fixed inset-0 z-0 block size-full border-0"
+        />
       )}
 
       <ConfigPanel config={config} onChange={setConfig} />
@@ -91,6 +123,8 @@ export default function App() {
           suggestions={SUGGESTIONS_BY_PAGE[config.page] ?? SUGGESTIONS_BY_PAGE.Home}
           nudge={config.nudge}
           nudgeType={config.nudgeType}
+          unread={config.unread}
+          unreadStyle={config.unreadStyle}
           pulse={config.pulse}
           pulseColor={config.pulseColor}
         />

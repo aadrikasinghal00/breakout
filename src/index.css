@@ -24,6 +24,32 @@ body {
   to { background-position: -200% 0; }
 }
 
+/* Placeholder opacity is a state, not a constant: 100% at rest, 95% on hover,
+   75% once the caret is in the field. Driven by --bo-ph-op on the input. */
+.bo-input::placeholder {
+  color: var(--bo-text);
+  opacity: var(--bo-ph-op, 1);
+  transition: opacity 180ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+/* "Thinking…" / "Sarah is typing…" — a light sweep travels along the text
+   (Figma paints it as a static white→40% gradient; animating it reads alive). */
+.bo-shimmer {
+  background-image: linear-gradient(
+    90deg,
+    var(--bo-text) 0%,
+    var(--bo-text-dim) 25%,
+    var(--bo-text) 50%,
+    var(--bo-text-dim) 75%,
+    var(--bo-text) 100%
+  );
+  background-size: 200% 100%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  animation: shimmer 2.6s linear infinite;
+}
+
 /* Linear-gradient stroke (1px) — brighter at top, fading down. Matches Figma's
    gradient stroke at 70% instead of a flat border. */
 .glass-stroke {
