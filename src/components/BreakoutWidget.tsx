@@ -15,10 +15,12 @@ const REP_NAME = "Sarah";
 const morph = { type: "spring", stiffness: 300, damping: 32, mass: 0.9 } as const;
 // A slower, softer settle for the scroll shrink — Apple-like, very velvet.
 const scrollEase = { type: "spring", stiffness: 150, damping: 26, mass: 1.15 } as const;
-// The hover→expand of the input: a well-damped spring (no overshoot) so the frame
-// grows in one smooth motion rather than wobbling/re-settling.
-const hoverEase = { type: "spring", stiffness: 260, damping: 38, mass: 0.9 } as const;
 const slowFade = { duration: 0.5, ease: [0.22, 1, 0.36, 1] } as const;
+// Every width inside the pod runs on this one spring: the input frame opening on hover, and
+// the actions ⇄ send swap. Well damped, so the frame grows in one motion without wobbling.
+// Sharing it is not tidiness — if the field reclaims space on a different clock from the one
+// the buttons give it up on, the pod visibly breathes mid-swap.
+const swap = { type: "spring", stiffness: 340, damping: 34, mass: 0.8 } as const;
 // Subtle vertical roll for the rotating suggestion text (new rises from below, old lifts up).
 const roll = { type: "spring", stiffness: 300, damping: 34, mass: 0.85 } as const;
 
@@ -635,17 +637,35 @@ export default function BreakoutWidget({
                       {/* Input stays mounted (width springs 0↔inputW) so expanding never
                           inserts a node mid-animation — no reflow stutter. It's inert
                           (pointer-events none, width 0) at rest, so no layout shift. */}
-                      <motion.div className="overflow-hidden" initial={false} animate={{ width: showFullInput ? inputW : 0, opacity: showFullInput ? 1 : 0, marginRight: showFullInput ? 2 : 0 }} transition={hoverEase} style={{ pointerEvents: showFullInput ? "auto" : "none" }}>
+                      {/* Same spring as the actions and the arrow. On a slower one the field
+                          reclaimed the freed space later than the buttons gave it up, and the
+                          pod visibly sucked in by ~16px before settling back. */}
+                      <motion.div className="overflow-hidden" initial={false} animate={{ width: showFullInput ? inputW : 0, opacity: showFullInput ? 1 : 0, marginRight: showFullInput ? 2 : 0 }} transition={swap} style={{ pointerEvents: showFullInput ? "auto" : "none" }}>
                         {/* Placeholder opacity is a state: 100% at rest, 95% hovered, 75% once
                             the caret lands in the field (frame 544:988). */}
-                        <motion.input ref={inputRef} value={inputValue} onChange={(e) => setInputValue(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter" && inputValue.trim()) openOrContinue(inputValue.trim()); }} className="bo-input bg-transparent text-[14px] font-medium leading-none tracking-[-0.14px] outline-none" initial={false} animate={{ width: inputW }} transition={scrollEase} style={{ color: "var(--bo-text)", caretColor: "var(--bo-text)", "--bo-ph-op": focused ? 0.75 : hovered ? 0.95 : 1 } as CSSProperties} placeholder={minimized ? "Continue Conversation" : "Ask anything..."} onFocus={() => setFocused(true)} onBlur={() => setFocused(false)} tabIndex={showFullInput ? 0 : -1} />
+                        {/* Same spring as the swap: the field has to take up the slack at the
+                            exact rate the buttons give it up, or the bar visibly breathes. */}
+                        <motion.input ref={inputRef} value={inputValue} onChange={(e) => setInputValue(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter" && inputValue.trim()) openOrContinue(inputValue.trim()); }} className="bo-input bg-transparent text-[14px] font-medium leading-none tracking-[-0.14px] outline-none" initial={false} animate={{ width: inputW }} transition={swap} style={{ color: "var(--bo-text)", caretColor: "var(--bo-text)", "--bo-ph-op": focused ? 0.75 : hovered ? 0.95 : 1 } as CSSProperties} placeholder={minimized ? "Continue Conversation" : "Ask anything..."} onFocus={() => setFocused(true)} onBlur={() => setFocused(false)} tabIndex={showFullInput ? 0 : -1} />
                       </motion.div>
 
                       {/* The actions step aside the moment a character is typed, and the send
-                          arrow takes their place. The outer node animates to zero width; the
-                          inner one keeps its natural size so `actionsW` stays measurable. */}
-                      <motion.div className="flex items-center overflow-hidden" initial={false} animate={{ width: typing ? 0 : "auto" }} transition={hoverEase} style={{ pointerEvents: typing ? "none" : "auto" }} aria-hidden={typing}>
-                      <div ref={actionsRef} className="flex shrink-0 items-center">
+                          arrow takes their place.
+                          The outer node owns the width (collapsing it is what makes room);
+                          the inner node owns the exit. Collapsing width ALONE just slid the
+                          buttons under the clip edge and sliced them, so the inner node also
+                          fades and shrinks toward its right edge, i.e. toward where the arrow
+                          is about to appear. It keeps its natural size throughout, which is
+                          what `actionsW` is measured from. */}
+                      <motion.div className="flex items-center justify-end overflow-hidden" initial={false} animate={{ width: typing ? 0 : "auto" }} transition={swap} style={{ pointerEvents: typing ? "none" : "auto" }} aria-hidden={typing}>
+                      <motion.div
+                        ref={actionsRef}
+                        className="flex shrink-0 items-center"
+                        initial={false}
+                        animate={{ opacity: typing ? 0 : 1, scale: typing ? 0.86 : 1 }}
+                        // Out fast and immediately; back in only once the width has reopened.
+                        transition={{ duration: typing ? 0.12 : 0.2, delay: typing ? 0 : 0.1, ease: [0.22, 1, 0.36, 1] }}
+                        style={{ transformOrigin: "right center" }}
+                      >
                       {/* At rest the secondaries carry their own inset (frame 541:399: px 8,
                           gap 4) — that inset IS the spacing to the pod edge and the primary.
                           Expanded they tuck against the input at gap 6; a lone secondary with
@@ -673,12 +693,15 @@ export default function BreakoutWidget({
                           <PrimaryMorph key="primary" label={primary.label} icon={primary.icon} booking={primary.key === "book_call"} compact={compact} theme={theme} hoverBg={secHover} filter={filter} onClick={activatePrimary} />
                         </motion.div>
                       )}
-                      </div>
+                      </motion.div>
                       </motion.div>
 
                       {/* Send. Same disc as the chat composer's. `onMouseDown` is swallowed so
-                          the click never blurs the field out from under itself. */}
-                      <motion.div className="flex shrink-0 items-center justify-end overflow-hidden" initial={false} animate={{ width: typing ? 32 : 0, marginLeft: typing ? 6 : 0 }} transition={hoverEase} style={{ pointerEvents: typing ? "auto" : "none" }} aria-hidden={!typing}>
+                          the click never blurs the field out from under itself.
+                          No `overflow-hidden` on the slot: a 32px disc inside a slot that is
+                          still opening would be cropped to a sliver. Letting it overflow, while
+                          invisible, means it only ever appears whole. */}
+                      <motion.div className="flex shrink-0 items-center justify-end" initial={false} animate={{ width: typing ? 32 : 0, marginLeft: typing ? 6 : 0 }} transition={swap} style={{ pointerEvents: typing ? "auto" : "none" }} aria-hidden={!typing}>
                         <motion.button
                           type="button"
                           aria-label="Send"
@@ -687,8 +710,9 @@ export default function BreakoutWidget({
                           className="flex size-[32px] shrink-0 items-center justify-center rounded-full transition-[filter] duration-200 hover:brightness-110"
                           style={{ backgroundColor: "var(--bo-primary-fill)", borderWidth: 1, borderStyle: "solid", borderColor: "var(--bo-primary-border)" }}
                           initial={false}
-                          animate={{ scale: typing ? 1 : 0.5, opacity: typing ? 1 : 0 }}
-                          transition={hoverEase}
+                          animate={{ scale: typing ? 1 : 0.6, opacity: typing ? 1 : 0 }}
+                          // In only once the buttons have gone; out immediately.
+                          transition={{ duration: typing ? 0.2 : 0.1, delay: typing ? 0.1 : 0, ease: [0.22, 1, 0.36, 1] }}
                           whileTap={{ scale: 0.94 }}
                           tabIndex={typing ? 0 : -1}
                         >
