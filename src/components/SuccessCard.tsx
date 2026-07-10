@@ -30,7 +30,7 @@ export default function SuccessCard({
         </motion.div>
 
         <motion.div layoutId={SURFACE_ID} transition={{ layout: surfaceMorph }} className={`${theme.gradientStroke ? "glass-stroke" : ""} relative w-[300px] px-[20px] py-[28px]`} style={glass(theme, "--bo-r-card", "--bo-blur-lg")}>
-          <motion.div className="flex w-full flex-col items-center gap-[10px]" {...contentIn}>
+          <motion.div className="flex w-full flex-col items-center gap-[10px]" layoutDependency={0} {...contentIn}>
             <button type="button" onClick={onClose} className="absolute right-[12px] top-[12px] opacity-70 transition-opacity hover:opacity-100"><img src="/breakout/close.svg" alt="close" className="size-[14px]" style={{ filter: theme.iconDark ? "brightness(0) opacity(0.7)" : "none" }} /></button>
 
             <motion.div className="flex size-[44px] items-center justify-center rounded-full" style={{ backgroundColor: "var(--bo-primary-fill)" }} initial={{ scale: 0, rotate: -20 }} animate={{ scale: 1, rotate: 0 }} transition={{ type: "spring", stiffness: 340, damping: 18, delay: 0.1 }}>

@@ -339,6 +339,10 @@ export default function BreakoutWidget({
   // The suggestion/nudge card on top matches the width of the base row below it.
   const baseRef = useRef<HTMLDivElement>(null);
   const [baseW, setBaseW] = useState<number>();
+  // Natural width of the secondaries + primary, so the input can grow by exactly that much
+  // when they step aside for the send arrow.
+  const actionsRef = useRef<HTMLDivElement>(null);
+  const [actionsW, setActionsW] = useState(0);
 
   useEffect(() => { setNudgeDismissed(false); }, [nudge, nudgeType]);
 
@@ -346,6 +350,19 @@ export default function BreakoutWidget({
     const el = baseRef.current;
     if (!el || typeof ResizeObserver === "undefined") return;
     const measure = () => setBaseW(el.offsetWidth);
+    measure();
+    const ro = new ResizeObserver(measure);
+    ro.observe(el);
+    return () => ro.disconnect();
+  });
+
+  // Measured on the INNER node: while the outer wrapper animates its width to zero, this
+  // one keeps its natural size, so the value survives the collapse. No dependency array —
+  // a ResizeObserver re-attached per render is cheap and never goes stale.
+  useLayoutEffect(() => {
+    const el = actionsRef.current;
+    if (!el || typeof ResizeObserver === "undefined") return;
+    const measure = () => setActionsW(el.offsetWidth);
     measure();
     const ro = new ResizeObserver(measure);
     ro.observe(el);
@@ -459,6 +476,7 @@ export default function BreakoutWidget({
   // conversation (messages preserved) rather than starting a new one, optionally sending text.
   const continueChat = (text: string) => { setMinimized(false); setChatOpen(true); if (text.trim()) sendInChat(text.trim()); };
   const openOrContinue = (text: string) => (minimized ? continueChat(text) : openChat(text));
+  const sendFromPod = () => { if (inputValue.trim()) openOrContinue(inputValue.trim()); };
   // "Book a Call" is a booking, not a conversation: pressing it from the resting pod goes
   // straight to the confirmation card. Any other primary (ROI Calculator, Video Library…)
   // is a topic, so it opens the chat on that topic.
@@ -537,7 +555,25 @@ export default function BreakoutWidget({
   // 24px chips — no chip inset at all. A lone secondary with no primary tightens to px 6
   // so the pod comes out 36×36, a square with the icon dead centre.
   const loneSecondary = !primary && secondaries.length === 1;
-  const inputW = noModules ? (askCompact ? 150 : 328) : 200;
+  // The first character typed retires the action buttons and puts the send arrow in their
+  // place. Gated on `showFullInput` so blurring away (which hides the field) brings the
+  // buttons straight back rather than stranding an arrow beside a collapsed input.
+  const typing = showFullInput && inputValue.length > 0;
+  // The arrow's footprint: a 32px disc plus the 6px gap it sits behind.
+  const SEND_W = 38;
+  // Growing the field by exactly what the buttons vacated keeps the pod the same width, so
+  // it never lurches narrower the instant you start typing. `actionsW` is the buttons'
+  // natural width, measured on the inner node, which keeps its size while the outer one
+  // animates to zero.
+  const inputW = noModules
+    ? askCompact
+      ? 150
+      : typing
+      ? 328 - SEND_W
+      : 328
+    : typing && actionsW
+    ? 200 + actionsW - SEND_W
+    : 200;
   const compactPadX = askCompact ? 12 : loneSecondary ? 6 : 8;
   const podPadLeft = compact ? compactPadX : noModules ? 18 : showFullInput ? 15 : 6;
   const podPadRight = compact ? compactPadX : noModules ? 18 : 6;
@@ -595,7 +631,7 @@ export default function BreakoutWidget({
                     <motion.div layoutId={SURFACE_ID} layoutDependency={view} className={`${strokeCls} flex items-center overflow-hidden ${showFullInput ? "" : "cursor-text"}`} style={glass(theme, "--bo-r-pod")} animate={{ height: compact ? 36 : 48, paddingTop: 6, paddingBottom: 6, paddingLeft: podPadLeft, paddingRight: podPadRight }} transition={{ default: scrollEase, layout: surfaceMorph }} onHoverStart={enterHover} onHoverEnd={leaveHover} onClick={() => inputRef.current?.focus()}>
                       {/* `layout` here is what keeps the pod's contents from wearing the
                           morph's scale — see morph.ts. */}
-                      <motion.div className="flex items-center" {...contentIn}>
+                      <motion.div className="flex items-center" layoutDependency={view} {...contentIn}>
                       {/* Input stays mounted (width springs 0↔inputW) so expanding never
                           inserts a node mid-animation — no reflow stutter. It's inert
                           (pointer-events none, width 0) at rest, so no layout shift. */}
@@ -605,6 +641,11 @@ export default function BreakoutWidget({
                         <motion.input ref={inputRef} value={inputValue} onChange={(e) => setInputValue(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter" && inputValue.trim()) openOrContinue(inputValue.trim()); }} className="bo-input bg-transparent text-[14px] font-medium leading-none tracking-[-0.14px] outline-none" initial={false} animate={{ width: inputW }} transition={scrollEase} style={{ color: "var(--bo-text)", caretColor: "var(--bo-text)", "--bo-ph-op": focused ? 0.75 : hovered ? 0.95 : 1 } as CSSProperties} placeholder={minimized ? "Continue Conversation" : "Ask anything..."} onFocus={() => setFocused(true)} onBlur={() => setFocused(false)} tabIndex={showFullInput ? 0 : -1} />
                       </motion.div>
 
+                      {/* The actions step aside the moment a character is typed, and the send
+                          arrow takes their place. The outer node animates to zero width; the
+                          inner one keeps its natural size so `actionsW` stays measurable. */}
+                      <motion.div className="flex items-center overflow-hidden" initial={false} animate={{ width: typing ? 0 : "auto" }} transition={hoverEase} style={{ pointerEvents: typing ? "none" : "auto" }} aria-hidden={typing}>
+                      <div ref={actionsRef} className="flex shrink-0 items-center">
                       {/* At rest the secondaries carry their own inset (frame 541:399: px 8,
                           gap 4) — that inset IS the spacing to the pod edge and the primary.
                           Expanded they tuck against the input at gap 6; a lone secondary with
@@ -632,6 +673,28 @@ export default function BreakoutWidget({
                           <PrimaryMorph key="primary" label={primary.label} icon={primary.icon} booking={primary.key === "book_call"} compact={compact} theme={theme} hoverBg={secHover} filter={filter} onClick={activatePrimary} />
                         </motion.div>
                       )}
+                      </div>
+                      </motion.div>
+
+                      {/* Send. Same disc as the chat composer's. `onMouseDown` is swallowed so
+                          the click never blurs the field out from under itself. */}
+                      <motion.div className="flex shrink-0 items-center justify-end overflow-hidden" initial={false} animate={{ width: typing ? 32 : 0, marginLeft: typing ? 6 : 0 }} transition={hoverEase} style={{ pointerEvents: typing ? "auto" : "none" }} aria-hidden={!typing}>
+                        <motion.button
+                          type="button"
+                          aria-label="Send"
+                          onMouseDown={(e) => e.preventDefault()}
+                          onClick={(e) => { e.stopPropagation(); sendFromPod(); }}
+                          className="flex size-[32px] shrink-0 items-center justify-center rounded-full transition-[filter] duration-200 hover:brightness-110"
+                          style={{ backgroundColor: "var(--bo-primary-fill)", borderWidth: 1, borderStyle: "solid", borderColor: "var(--bo-primary-border)" }}
+                          initial={false}
+                          animate={{ scale: typing ? 1 : 0.5, opacity: typing ? 1 : 0 }}
+                          transition={hoverEase}
+                          whileTap={{ scale: 0.94 }}
+                          tabIndex={typing ? 0 : -1}
+                        >
+                          <span className="text-[14px] leading-none" style={{ color: "var(--bo-primary-text)" }}>↑</span>
+                        </motion.button>
+                      </motion.div>
                       </motion.div>
                     </motion.div>
                   </PulseFrame>
