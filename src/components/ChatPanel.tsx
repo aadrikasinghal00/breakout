@@ -296,7 +296,8 @@ export default function ChatPanel({
           <div className="flex w-full flex-col gap-[10px]">
             <div className="h-px w-full" style={{ backgroundColor: "var(--bo-text)", opacity: 0.18 }} />
             <div className="flex w-full items-center justify-between gap-[12px]">
-              <input value={draft} onChange={(e) => setDraft(e.target.value)} onKeyDown={(e) => e.key === "Enter" && submit()} placeholder="What can I help you with?" className="bo-input min-w-0 flex-1 bg-transparent text-[14px] font-medium leading-none tracking-[-0.14px] outline-none" style={{ color: "var(--bo-text)", caretColor: "var(--bo-text)", "--bo-ph-op": 0.75 } as CSSProperties} />
+              {/* Same copy, and the same 75% placeholder, as the resting pod's input. */}
+              <input value={draft} onChange={(e) => setDraft(e.target.value)} onKeyDown={(e) => e.key === "Enter" && submit()} placeholder="Ask anything..." className="bo-input min-w-0 flex-1 bg-transparent text-[14px] font-medium leading-none tracking-[-0.14px] outline-none" style={{ color: "var(--bo-text)", caretColor: "var(--bo-text)", "--bo-ph-op": 0.75 } as CSSProperties} />
               <motion.button type="button" onClick={submit} className="flex size-[32px] shrink-0 items-center justify-center rounded-full transition-[filter] duration-200 hover:brightness-110" style={{ backgroundColor: "var(--bo-primary-fill)", borderWidth: 1, borderStyle: "solid", borderColor: "var(--bo-primary-border)" }} whileTap={{ scale: 0.94 }} transition={velvet}>
                 <span className="text-[14px] leading-none" style={{ color: "var(--bo-primary-text)" }}>↑</span>
               </motion.button>
