@@ -348,6 +348,12 @@ export default function BreakoutWidget({
 
   useEffect(() => { setNudgeDismissed(false); }, [nudge, nudgeType]);
 
+  // A page scroll releases the latched hover. In the live embed that arrives as a window
+  // scroll/wheel (handled in onShrink); in this demo the backdrop scroll is bridged in as
+  // the `scrolled` prop, so mirror the release here too — scroll is one of the only two
+  // gestures allowed to collapse a hover-opened pod.
+  useEffect(() => { if (scrolled) setHovered(false); }, [scrolled]);
+
   useLayoutEffect(() => {
     const el = baseRef.current;
     if (!el || typeof ResizeObserver === "undefined") return;
@@ -472,8 +478,8 @@ export default function BreakoutWidget({
     setThinking(false);
     setMessages([{ from: "ai", text: repActive ? `Hi Maya, ${REP_NAME} here from the team 👋\n\nWhat can I help you with?` : "Hi Maya, you're speaking with Breakout AI Agent.\n\nWhat would you like to know?" }]);
   };
-  const closeChat = () => { setChatOpen(false); setMinimized(false); setScrolledLocal(false); setSuccess(false); setThinking(false); setFocused(false); setMessages([]); };
-  const minimizeChat = () => { setChatOpen(false); setSuccess(false); setFocused(false); setScrolledLocal(false); setMinimized(true); };
+  const closeChat = () => { setChatOpen(false); setMinimized(false); setScrolledLocal(false); setSuccess(false); setThinking(false); setFocused(false); setHovered(false); setMessages([]); };
+  const minimizeChat = () => { setChatOpen(false); setSuccess(false); setFocused(false); setScrolledLocal(false); setHovered(false); setMinimized(true); };
   // While minimized the widget looks like its resting state; interacting REOPENS the same
   // conversation (messages preserved) rather than starting a new one, optionally sending text.
   const continueChat = (text: string) => { setMinimized(false); setChatOpen(true); if (text.trim()) sendInChat(text.trim()); };
@@ -509,21 +515,25 @@ export default function BreakoutWidget({
     let idle: number | undefined;
     // Scrolling the page/backdrop shrinks the widget's on-scroll state, then restores
     // ~1s after scrolling stops. Never fires from the config panel or an open chat.
+    // A page scroll also RELEASES the latched hover (see the enterHover note): a scroll
+    // is one of the two gestures that may end the hover-open state.
     const onShrink = (e?: Event) => {
       if (e && ignore(e.target)) return;
+      setHovered(false);
       if (chatVisibleRef.current) return; // don't compact while the chat panel is open
       setScrolledLocal(true);
       window.clearTimeout(idle);
       idle = window.setTimeout(() => setScrolledLocal(false), 900);
     };
     // Clicking outside the widget collapses an open chat (→ 435:233), or dismisses the
-    // suggestion panel back to the resting pod.
-    const onDown = (e: MouseEvent) => { if (ignore(e.target)) return; if (chatVisibleRef.current) toMinimized(); else toResting(); };
+    // suggestion panel back to the resting pod. Either way it releases the latched hover —
+    // a click on the page is the other gesture that ends the hover-open state.
+    const onDown = (e: MouseEvent) => { if (ignore(e.target)) return; setHovered(false); if (chatVisibleRef.current) toMinimized(); else toResting(); };
     // Clicking into the backdrop iframe moves focus off our window; mousedown never
     // reaches us from that document, so this is our only "touched the page" signal.
     // Same two outcomes — the on-scroll shrink is driven by the iframe's real scroll
-    // (see App), not by focus changes.
-    const onBlur = () => { if (chatVisibleRef.current) toMinimized(); else toResting(); };
+    // (see App), not by focus changes. Counts as a page click → release the hover latch.
+    const onBlur = () => { setHovered(false); if (chatVisibleRef.current) toMinimized(); else toResting(); };
     document.addEventListener("mousedown", onDown);
     window.addEventListener("blur", onBlur);
     window.addEventListener("scroll", onShrink, true); // capture → catches inner scroll containers
@@ -541,12 +551,12 @@ export default function BreakoutWidget({
   // input copy and the reopen behaviour differ. So there is no separate minimized branch.
   const view = success ? "success" : chatOpen ? "chat" : "full";
 
-  // Hover-intent latch: the pod resizes as it expands, which can momentarily flick the
-  // pointer past an edge and fire a spurious hoverEnd. Delay clearing hover briefly so a
-  // re-enter cancels it — the expand/collapse never stutters at the boundary.
-  const hoverTimer = useRef<number | undefined>(undefined);
-  const enterHover = () => { window.clearTimeout(hoverTimer.current); setHovered(true); };
-  const leaveHover = () => { hoverTimer.current = window.setTimeout(() => setHovered(false), 130); };
+  // Hover LATCH (client requirement): entering the pod opens it and KEEPS it open even
+  // after the pointer leaves the container. The expanded state is never released by the
+  // pointer moving away — only by an explicit page gesture: a scroll, or a click/blur
+  // anywhere off the pod (both handled in the window/document listeners above). Moving
+  // the cursor around the page therefore never collapses the pod.
+  const enterHover = () => setHovered(true);
 
   // ---- Pod metrics ----------------------------------------------------------------
   // At rest: the bare "Ask anything" pod (frame 538:169) is a fixed 364 wide and insets
@@ -584,7 +594,7 @@ export default function BreakoutWidget({
   const primaryMarginLeft = secondaries.length === 0 ? 0 : compact ? 4 : showFullInput ? 6 : 0;
 
   return (
-    <div ref={rootRef} className="relative" style={{ ...(theme.vars as CSSProperties), ...(primaryColor ? { "--bo-primary-fill": primaryColor } as CSSProperties : {}), ...(primaryColor && readableTextFor(primaryColor) ? { "--bo-primary-text": readableTextFor(primaryColor)!.text, "--bo-primary-text-shadow": readableTextFor(primaryColor)!.shadow } as CSSProperties : {}), ...(font ? { fontFamily: `'${font}', system-ui, sans-serif` } : {}) }} onMouseEnter={() => setScrolledLocal(false)} onMouseLeave={() => setHovered(false)}>
+    <div ref={rootRef} className="relative" style={{ ...(theme.vars as CSSProperties), ...(primaryColor ? { "--bo-primary-fill": primaryColor } as CSSProperties : {}), ...(primaryColor && readableTextFor(primaryColor) ? { "--bo-primary-text": readableTextFor(primaryColor)!.text, "--bo-primary-text-shadow": readableTextFor(primaryColor)!.shadow } as CSSProperties : {}), ...(font ? { fontFamily: `'${font}', system-ui, sans-serif` } : {}) }} onMouseEnter={() => setScrolledLocal(false)}>
       {/* No AnimatePresence and no `exit` here on purpose. The three views share one glass
           surface and one mark (see morph.ts): the outgoing view unmounts in the same commit
           the incoming one mounts, so Framer morphs the surface from the old box to the new
@@ -630,7 +640,7 @@ export default function BreakoutWidget({
                     style={{ overflow: clipPod || askDropped ? "hidden" : "visible", pointerEvents: askDropped ? "none" : "auto" }}
                   >
                   <PulseFrame on={pulse} color={pulseColor} radius={podRadius(theme)}>
-                    <motion.div layoutId={SURFACE_ID} layoutDependency={view} className={`${strokeCls} flex items-center overflow-hidden ${showFullInput ? "" : "cursor-text"}`} style={glass(theme, "--bo-r-pod")} animate={{ height: compact ? 36 : 48, paddingTop: 6, paddingBottom: 6, paddingLeft: podPadLeft, paddingRight: podPadRight }} transition={{ default: scrollEase, layout: surfaceMorph }} onHoverStart={enterHover} onHoverEnd={leaveHover} onClick={() => inputRef.current?.focus()}>
+                    <motion.div layoutId={SURFACE_ID} layoutDependency={view} className={`${strokeCls} flex items-center overflow-hidden ${showFullInput ? "" : "cursor-text"}`} style={glass(theme, "--bo-r-pod")} animate={{ height: compact ? 36 : 48, paddingTop: 6, paddingBottom: 6, paddingLeft: podPadLeft, paddingRight: podPadRight }} transition={{ default: scrollEase, layout: surfaceMorph }} onHoverStart={enterHover} onClick={() => inputRef.current?.focus()}>
                       {/* `layout` here is what keeps the pod's contents from wearing the
                           morph's scale — see morph.ts. */}
                       <motion.div className="flex items-center" layoutDependency={view} {...contentIn}>
