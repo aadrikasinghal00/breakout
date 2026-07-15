@@ -11,10 +11,11 @@ export type Theme = {
   gradientStroke: boolean;
   /** true → tint the mono icons dark (light themes) */
   iconDark: boolean;
-  /** logo mark. bg present → coloured disc + centred glyph (padded); no bg → full-bleed image. */
-  logo: { src: string; bg?: string; pad?: string };
+  /** logo mark. bg present → coloured disc + centred glyph (padded); no bg → full-bleed
+   *  image. `agent` → render the animated AgentIcon instead of an image. */
+  logo: { src?: string; bg?: string; pad?: string; agent?: boolean };
   /** Alternate mark shown when the visitor is a "Known company" (e.g. their own logo). */
-  logoKnown?: { src: string; bg?: string; pad?: string };
+  logoKnown?: { src?: string; bg?: string; pad?: string; agent?: boolean };
   /** true → the bottom-left mark is a rounded SQUARE (follows the pod corner radius)
    *  instead of a circle. Used by NetApp. */
   logoSquare?: boolean;

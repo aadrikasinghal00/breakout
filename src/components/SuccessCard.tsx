@@ -3,6 +3,7 @@ import { type CSSProperties } from "react";
 import type { Theme } from "../themes";
 import { glass } from "../glass";
 import { MARK_ID, SURFACE_ID, contentIn, surfaceMorph } from "../morph";
+import AgentIcon from "./AgentIcon";
 
 const velvet = { type: "spring", stiffness: 420, damping: 34, mass: 0.7 } as const;
 
@@ -14,7 +15,7 @@ export default function SuccessCard({
   onContinue,
 }: {
   theme: Theme;
-  logo?: { src: string; bg?: string; pad?: string };
+  logo?: { src?: string; bg?: string; pad?: string; agent?: boolean };
   detail?: string;
   onClose?: () => void;
   onContinue?: () => void;
@@ -25,7 +26,7 @@ export default function SuccessCard({
       <div className="flex items-end gap-[8px]">
         {/* Mark and surface are shared with the pod and the chat — they morph, never pop. */}
         <motion.div layoutId={MARK_ID} layout="position" layoutDependency={0} transition={surfaceMorph} className="relative size-[40px] shrink-0 overflow-hidden rounded-[56.25px]" style={{ boxShadow: "var(--bo-shadow)" }}>
-          {L.bg ? (<div className="absolute inset-0 flex items-center justify-center" style={{ background: L.bg }}><img src={L.src} alt="" className="size-full object-contain" style={{ padding: L.pad ?? "26%" }} /></div>) : (<img src={L.src} alt="" className="absolute inset-0 size-full object-contain" />)}
+          {L.bg ? (<div className="absolute inset-0 flex items-center justify-center" style={{ background: L.bg, color: "#fff" }}>{L.agent ? <AgentIcon size={30} /> : <img src={L.src} alt="" className="size-full object-contain" style={{ padding: L.pad ?? "26%" }} />}</div>) : (<img src={L.src} alt="" className="absolute inset-0 size-full object-contain" />)}
           <div className="absolute inset-0 rounded-[inherit] shadow-[inset_0px_-2px_3px_0px_rgba(255,255,255,0.2),inset_0px_2px_3px_0px_rgba(255,255,255,0.2)]" />
         </motion.div>
 

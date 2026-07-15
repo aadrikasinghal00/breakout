@@ -70,7 +70,7 @@ export const SUGGESTIONS_BY_PAGE: Record<string, string[]> = {
 };
 
 /** The default agent avatar shown when the customer opts out of using their own logo. */
-export const DEFAULT_AGENT = { src: "/breakout/agent.svg", bg: "linear-gradient(145deg,#2b2b30,#141416)", pad: "26%" };
+export const DEFAULT_AGENT = { agent: true, bg: "linear-gradient(145deg,#2b2b30,#141416)" };
 
 export type Config = {
   theme: ThemeKey;
@@ -94,6 +94,9 @@ export type Config = {
   /** When every block is off (the "Ask anything" state): keep that pod on scroll, or
    *  remove it entirely once the page scrolls. Only relevant when nothing is 1st/2nd. */
   askOnScroll: boolean;
+  /** Gate the chat behind an email: the first agent reply asks for the visitor's
+   *  email before the conversation continues. Off → the previous flow. */
+  askEmailFirst: boolean;
 };
 
 export const DEFAULT_CONFIG: Config = {
@@ -103,7 +106,7 @@ export const DEFAULT_CONFIG: Config = {
   repOnline: false,
   unread: false,
   unreadStyle: "badge",
-  useLogo: true,
+  useLogo: false,
   nudge: false,
   nudgeType: "card",
   pulse: false,
@@ -112,6 +115,7 @@ export const DEFAULT_CONFIG: Config = {
   font: "",
   slots: { book_call: "1st", summarize: "2nd", roi: "menu", video: "menu" },
   askOnScroll: true,
+  askEmailFirst: true,
 };
 
 /** Move an option into a slot. Enforces a single primary (old 1st → 2nd). */
@@ -372,6 +376,8 @@ function PanelBody({ config, onChange }: { config: Config; onChange: (next: Conf
       <Group label="Visitor"><Dropdown value={config.visitor} onChange={(v) => set({ visitor: v })} /></Group>
 
       <Row label="Sales rep online"><Toggle on={config.repOnline} onChange={(v) => set({ repOnline: v })} /></Row>
+
+      <Row label="Ask for email first"><Toggle on={config.askEmailFirst} onChange={(v) => set({ askEmailFirst: v })} /></Row>
 
       <Row label="Unread message"><Toggle on={config.unread} onChange={(v) => set({ unread: v })} /></Row>
       <AnimatePresence initial={false}>

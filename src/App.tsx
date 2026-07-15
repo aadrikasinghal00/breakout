@@ -118,6 +118,7 @@ export default function App() {
           visitor={config.visitor}
           useLogo={config.useLogo}
           askOnScroll={config.askOnScroll}
+          askEmailFirst={config.askEmailFirst}
           primaryColor={config.primaryColor}
           font={config.font}
           suggestions={SUGGESTIONS_BY_PAGE[config.page] ?? SUGGESTIONS_BY_PAGE.Home}

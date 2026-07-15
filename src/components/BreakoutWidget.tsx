@@ -1,16 +1,27 @@
 import { AnimatePresence, motion } from "framer-motion";
 import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type ReactNode } from "react";
+import { createPortal } from "react-dom";
 import { BorderBeam } from "border-beam";
 import { pulsePreset, DEFAULT_AGENT, type NudgeType, type OptionDef, type PulseColor, type UnreadStyle } from "./ConfigPanel";
 import type { Theme } from "../themes";
-import ChatPanel, { REP_AVATAR, type Msg, type Rep, type Conversation } from "./ChatPanel";
+import ChatPanel, { REP_AVATAR, type Msg, type Rep } from "./ChatPanel";
+import AgentIcon from "./AgentIcon";
 import SuccessCard from "./SuccessCard";
+import SummaryPanel from "./SummaryPanel";
+import VideoLibraryPanel from "./VideoLibraryPanel";
 import NudgeCard from "./NudgeCard";
 import { playChime, playTick } from "../sound";
 import { glass } from "../glass";
 import { MARK_ID, SURFACE_ID, contentIn, surfaceMorph } from "../morph";
 
 const REP_NAME = "Sarah";
+
+// Pull a plausible first name out of an email for a personal acknowledgement.
+// Strips digits + anything after the first separator; skips 1-char/empty locals.
+function firstNameFromEmail(email: string): string {
+  const local = (email.split("@")[0] || "").split(/[._+-]/)[0].replace(/\d+/g, "");
+  return local.length >= 2 ? local.charAt(0).toUpperCase() + local.slice(1).toLowerCase() : "";
+}
 
 const morph = { type: "spring", stiffness: 300, damping: 32, mass: 0.9 } as const;
 // A slower, softer settle for the scroll shrink — Apple-like, very velvet.
@@ -105,11 +116,42 @@ const podRadius = (theme: Theme) => parseInt(theme.vars["--bo-r-pod"] ?? "60", 1
 // Secondary chip that MORPHS between the default 32px rounded-square and the 24px
 // circular on-scroll form (designs 435:233 → 448:383). Animated size + radius, so the
 // bar never hard-swaps — it just resizes.
-function MorphChip({ icon, compact, filter, hoverBg, onClick }: { icon: string; compact: boolean; filter: string; hoverBg: string; onClick?: () => void }) {
+function MorphChip({ icon, label, compact, filter, hoverBg, onClick }: { icon: string; label?: string; compact: boolean; filter: string; hoverBg: string; onClick?: () => void }) {
+  const [hover, setHover] = useState(false);
+  const btnRef = useRef<HTMLButtonElement>(null);
+  const [tip, setTip] = useState<{ x: number; y: number } | null>(null);
+  // The pod surface is `overflow-hidden` (its rounded glass clips content), so a
+  // tooltip drawn inside the chip is cropped away above the pod's edge. Measure the
+  // chip in viewport space and PORTAL the bubble to <body> so nothing clips it.
+  const open = () => {
+    setHover(true);
+    const r = btnRef.current?.getBoundingClientRect();
+    if (r) setTip({ x: r.left + r.width / 2, y: r.top });
+  };
+  const close = () => { setHover(false); setTip(null); };
   return (
-    <motion.button type="button" onClick={onClick} className="group relative flex shrink-0 items-center justify-center overflow-hidden" animate={{ width: compact ? 24 : 32, height: compact ? 24 : 32, borderRadius: compact ? 12 : 10 }} transition={scrollEase}>
+    <motion.button ref={btnRef} type="button" onClick={onClick} onHoverStart={open} onHoverEnd={close} className="group relative flex shrink-0 items-center justify-center" animate={{ width: compact ? 24 : 32, height: compact ? 24 : 32, borderRadius: compact ? 12 : 10 }} transition={scrollEase}>
       <span className="pointer-events-none absolute inset-0 rounded-[inherit] opacity-0 transition-opacity duration-200 ease-out group-hover:opacity-100" style={{ backgroundColor: hoverBg }} />
       <motion.img src={ICONS[icon]} alt="" className="relative shrink-0" animate={{ width: compact ? 16 : 20, height: compact ? 16 : 20 }} transition={scrollEase} style={{ filter }} />
+      {/* Tooltip (Figma 594:694) — a small dark bubble above the icon on hover.
+          Solid, not glass, so it can safely fade; portalled out of the clipped pod. */}
+      {createPortal(
+        <AnimatePresence>
+          {hover && label && !compact && tip && (
+            <motion.span
+              className="pointer-events-none fixed z-[9999] whitespace-nowrap rounded-[8px] px-[9px] py-[6px] text-[12px] font-medium leading-none text-white"
+              style={{ left: tip.x, top: tip.y - 8, backgroundColor: "rgba(24,24,29,0.96)", boxShadow: "0px 8px 22px rgba(0,0,0,0.4)", x: "-50%", y: "-100%" }}
+              initial={{ opacity: 0, y: "-90%", scale: 0.9 }}
+              animate={{ opacity: 1, y: "-100%", scale: 1 }}
+              exit={{ opacity: 0, y: "-90%", scale: 0.9 }}
+              transition={{ type: "spring", stiffness: 500, damping: 30, mass: 0.6 }}
+            >
+              {label}
+            </motion.span>
+          )}
+        </AnimatePresence>,
+        document.body,
+      )}
     </motion.button>
   );
 }
@@ -200,7 +242,7 @@ function PrimaryMorph({ label, icon, booking, compact, theme, hoverBg, filter, o
 }
 
 
-type LogoDef = { src: string; bg?: string; pad?: string };
+type LogoDef = { src?: string; bg?: string; pad?: string; agent?: boolean };
 
 function Logo({ px, rep, theme, logo, showRepDot = true, badge }: { px: number; rep?: boolean; theme: Theme; logo?: LogoDef; showRepDot?: boolean; badge?: number }) {
   // NetApp (logoSquare) → rounded square that follows the pod corner radius. Others → circle.
@@ -214,8 +256,12 @@ function Logo({ px, rep, theme, logo, showRepDot = true, badge }: { px: number; 
         {rep ? (
           <img src={REP_AVATAR} alt="" className="absolute inset-0 size-full object-cover" />
         ) : L.bg ? (
-          <div className="absolute inset-0 flex items-center justify-center" style={{ background: L.bg }}>
-            <img src={L.src} alt="" className="size-full object-contain" style={{ padding: L.pad ?? "26%" }} />
+          <div className="absolute inset-0 flex items-center justify-center" style={{ background: L.bg, color: "#fff" }}>
+            {L.agent ? (
+              <AgentIcon size={Math.round(px * 0.74)} />
+            ) : (
+              <img src={L.src} alt="" className="size-full object-contain" style={{ padding: L.pad ?? "26%" }} />
+            )}
           </div>
         ) : (
           <img src={L.src} alt="Breakout" className="absolute inset-0 size-full object-contain" />
@@ -245,7 +291,7 @@ function Logo({ px, rep, theme, logo, showRepDot = true, badge }: { px: number; 
 }
 
 
-function MenuPopover({ menu, suggestions, onPick, theme, filter, tint, width }: { menu: OptionDef[]; suggestions: string[]; onPick: (t: string) => void; theme: Theme; filter: string; tint: string; width?: number }) {
+function MenuPopover({ menu, suggestions, onPick, onOption, theme, filter, tint, width }: { menu: OptionDef[]; suggestions: string[]; onPick: (t: string) => void; onOption: (key: string) => void; theme: Theme; filter: string; tint: string; width?: number }) {
   return (
     <motion.div key="popover" className={`${theme.gradientStroke ? "glass-stroke" : ""} flex flex-col gap-[16px] p-[12px]`} style={{ ...glass(theme, "--bo-r-card", "--bo-blur-lg"), transformOrigin: "bottom center", width }} initial={{ y: 14, scale: 0.94 }} animate={{ y: 0, scale: 1 }} exit={{ y: 14, scale: 0.94 }} transition={morph}>
       {/* No "Explore more" caption (frame 544:962) — the chips speak for themselves;
@@ -254,7 +300,7 @@ function MenuPopover({ menu, suggestions, onPick, theme, filter, tint, width }: 
         <div className="flex flex-col pl-[4px] pt-[4px]">
           <div className="flex flex-wrap gap-[10px]">
             {menu.map((o) => (
-              <button key={o.key} type="button" onMouseDown={(e) => e.preventDefault()} onClick={() => onPick(o.label)} className="group relative flex items-center justify-center gap-[8px] overflow-hidden rounded-[40px] px-[10px] py-[4px]" style={{ backgroundColor: "var(--bo-bubble)" }}>
+              <button key={o.key} type="button" onMouseDown={(e) => e.preventDefault()} onClick={() => onOption(o.key)} className="group relative flex items-center justify-center gap-[8px] overflow-hidden rounded-[40px] px-[10px] py-[4px]" style={{ backgroundColor: "var(--bo-bubble)" }}>
                 <Tint color={tint} />
                 <img src={ICONS[o.icon]} alt="" className="relative size-[14px]" style={{ filter }} />
                 <span className="relative whitespace-nowrap text-[14px] font-medium leading-[1.45]" style={{ color: "var(--bo-text)" }}>{o.label}</span>
@@ -290,6 +336,7 @@ export default function BreakoutWidget({
   visitor = "Anonymous",
   useLogo = true,
   askOnScroll = true,
+  askEmailFirst = false,
   primaryColor = "",
   font = "",
   suggestions,
@@ -309,6 +356,7 @@ export default function BreakoutWidget({
   visitor?: string;
   useLogo?: boolean;
   askOnScroll?: boolean;
+  askEmailFirst?: boolean;
   primaryColor?: string;
   font?: string;
   suggestions: string[];
@@ -329,6 +377,9 @@ export default function BreakoutWidget({
   const inputRef = useRef<HTMLInputElement>(null);
   const [chatOpen, setChatOpen] = useState(false);
   const [minimized, setMinimized] = useState(false);
+  // Dedicated panels (Video Library / Summary) opened from the pod actions.
+  const [videoOpen, setVideoOpen] = useState(false);
+  const [summaryOpen, setSummaryOpen] = useState(false);
   // Scroll shrink: scrolling the page shrinks the widget to its compact bar; it restores
   // ~1s after scrolling stops.
   const [scrolledLocal, setScrolledLocal] = useState(false);
@@ -336,6 +387,18 @@ export default function BreakoutWidget({
   const [messages, setMessages] = useState<Msg[]>([]);
   const [thinking, setThinking] = useState(false);
   const [success, setSuccess] = useState(false);
+  // Email gate: captured address ("" = not yet), and the visitor's first message,
+  // held so the agent can answer it once the email is in.
+  const [email, setEmail] = useState("");
+  const [pendingText, setPendingText] = useState("");
+  // Sales-rep hand-off: after the visitor's 3rd message the agent invites a rep,
+  // then Sarah "joins" locally (independent of the config's repOnline toggle).
+  const [localRep, setLocalRep] = useState(false);
+  const [salesInvited, setSalesInvited] = useState(false);
+  // While true the header shows a "Connecting with Sales Rep" loader + empty profile,
+  // until the rep actually joins. Never lingers once joined.
+  const [connecting, setConnecting] = useState(false);
+  const sentRef = useRef(0); // visitor questions sent (email submit doesn't count)
   const [sugIdx, setSugIdx] = useState(0);
   const rootRef = useRef<HTMLDivElement>(null);
   // The suggestion/nudge card on top matches the width of the base row below it.
@@ -403,7 +466,8 @@ export default function BreakoutWidget({
   // retires it entirely and lets the mark shrink and re-centre on its own.
   const askDropped = noModules && compact && !askOnScroll;
   const askCompact = noModules && compact && askOnScroll;
-  const rep: Rep = repActive ? { name: REP_NAME } : null;
+  const repHere = repActive || localRep;
+  const rep: Rep = repHere ? { name: REP_NAME } : null;
   const unreadLive = unread && !unreadDismissed && !chatOpen && !success;
   const showBadge = unreadLive && unreadStyle === "badge";
   const showUnreadCard = unreadLive && unreadStyle === "notification";
@@ -448,9 +512,33 @@ export default function BreakoutWidget({
     setThinking(true);
     window.setTimeout(() => {
       setThinking(false);
-      setMessages((m) => [...m, { from: "ai", text: repActive ? "Happy to help! Want me to grab a 15-min slot on my calendar to walk you through it?" : "Great — the Growth plan fits your team best. Want me to book a quick 15-min call to walk through it?", cta: "Book a call" }]);
+      // After the visitor's 3rd question, hand off to a sales rep (once): invite →
+      // "Connecting with Sales Rep" → Sarah joins → she greets.
+      if (sentRef.current >= 3 && !repHere && !salesInvited) {
+        setSalesInvited(true);
+        setMessages((m) => [...m, { from: "ai", text: "Your request is valid — let me invite a sales rep who can dig into the details with you." }]);
+        // The connecting state lives in the HEADER (loader + empty profile), not as a
+        // transcript divider. It clears the instant the rep joins — never lingers.
+        setConnecting(true);
+        window.setTimeout(() => {
+          setConnecting(false);
+          setLocalRep(true);
+          setMessages((m) => [
+            ...m,
+            { from: "system", name: REP_NAME, text: "joined the conversation" },
+            { from: "ai", text: `Hi Maya, ${REP_NAME} here 👋 — I've got the full thread. Happy to take it from here; what would you like to dig into?` },
+          ]);
+        }, 5500);
+        return;
+      }
+      setMessages((m) => [...m, { from: "ai", text: repHere ? "Happy to help! Want me to grab a 15-min slot on my calendar to walk you through it?" : "Great — the Growth plan fits your team best. Want me to book a quick 15-min call to walk through it?", cta: "Book a call" }]);
     }, 1900);
   };
+  // Copy for the email gate — warm, one reason to give it, and a no-spam promise.
+  const emailAsk = () =>
+    repActive
+      ? `Happy to help! 👋 Before we dive in, what's the best email to reach you at? That way ${REP_NAME} can follow up personally and pick things right back up if we ever get cut off.`
+      : "Happy to help! 👋 Before we dive in, what's the best email to reach you at? I'll only use it to follow up on our chat and send anything useful — no spam, ever.";
   const openChat = (text: string) => {
     setSuccess(false);
     setChatOpen(true);
@@ -458,27 +546,49 @@ export default function BreakoutWidget({
     setNudgeDismissed(true);
     setUnreadDismissed(true);
     setInputValue("");
+    // Email gate: the agent's FIRST message asks for the email; the conversation
+    // (and any first question) is held until it's submitted. `askEmailFirst` off →
+    // the previous flow below.
+    if (askEmailFirst && !email) {
+      const first = text.trim();
+      if (first) sentRef.current += 1;
+      setPendingText(first);
+      setMessages([
+        ...(first ? [{ from: "user" as const, text: first }] : []),
+        { from: "ai" as const, text: emailAsk(), emailRequest: true },
+      ]);
+      return;
+    }
+    sentRef.current += 1;
     setMessages([
       { from: "ai", text: repActive ? "Hi Maya, Sarah here from the team 👋\n\nI see you're on the Pricing Page — want a hand picking the right plan?" : "Hi Maya, you're speaking with Breakout AI Agent.\n\nI see you're on the Pricing Page, want me to give you an in-depth suggestion of which pricing will be best for you?" },
       { from: "user", text: text || "Yes, sure please" },
     ]);
     aiReply();
   };
-  const sendInChat = (text: string) => { setMessages((m) => [...m, { from: "user", text }]); aiReply(); };
-  // Pick a past conversation from the header history dropdown → load a recap of it.
-  const selectHistory = (c: Conversation) => {
-    setThinking(false);
-    setMessages([
-      { from: "user", text: c.title },
-      { from: "ai", text: `Picking up where we left off on “${c.title}”. Want me to continue from here?`, cta: "Book a call" },
-    ]);
+  // The visitor handed over their email. Consistent hand-off (never the random
+  // canned line): the email lands as a bubble, an instant personalised thanks, a
+  // beat, then the conversation picks up — toward help if they asked something,
+  // or an invitation if they opened cold.
+  const submitEmail = (value: string) => {
+    setEmail(value);
+    const name = firstNameFromEmail(value);
+    const hi = name ? `, ${name}` : "";
+    const asked = pendingText.trim();
+    setMessages((m) => [...m, { from: "user", text: value }, { from: "ai", text: `Perfect — thanks${hi}! 🙌` }]);
+    setThinking(true);
+    window.setTimeout(() => {
+      setThinking(false);
+      setMessages((m) => [
+        ...m,
+        asked
+          ? { from: "ai", text: repActive ? "I'd love to walk you through it — the quickest way is a 15-min call with me. Want me to find a time?" : "Happy to walk you through it — the quickest way is a quick 15-min call. Want me to find a time?", cta: "Book a call" }
+          : { from: "ai", text: repActive ? "So — what can I help you with today?" : "So — what would you like to know?" },
+      ]);
+    }, 1300);
   };
-  // "New Conversation" in the history dropdown → a clean slate, same open panel.
-  const newConversation = () => {
-    setThinking(false);
-    setMessages([{ from: "ai", text: repActive ? `Hi Maya, ${REP_NAME} here from the team 👋\n\nWhat can I help you with?` : "Hi Maya, you're speaking with Breakout AI Agent.\n\nWhat would you like to know?" }]);
-  };
-  const closeChat = () => { setChatOpen(false); setMinimized(false); setScrolledLocal(false); setSuccess(false); setThinking(false); setFocused(false); setHovered(false); setMessages([]); };
+  const sendInChat = (text: string) => { sentRef.current += 1; setMessages((m) => [...m, { from: "user", text }]); aiReply(); };
+  const closeChat = () => { setChatOpen(false); setMinimized(false); setScrolledLocal(false); setSuccess(false); setThinking(false); setFocused(false); setHovered(false); setMessages([]); setEmail(""); setPendingText(""); setLocalRep(false); setSalesInvited(false); setConnecting(false); sentRef.current = 0; };
   const minimizeChat = () => { setChatOpen(false); setSuccess(false); setFocused(false); setScrolledLocal(false); setHovered(false); setMinimized(true); };
   // While minimized the widget looks like its resting state; interacting REOPENS the same
   // conversation (messages preserved) rather than starting a new one, optionally sending text.
@@ -497,13 +607,29 @@ export default function BreakoutWidget({
     setFocused(false);
     setSuccess(true);
   };
-  const activatePrimary = () => (primary?.key === "book_call" ? bookNow() : openOrContinue(""));
+  // Open a dedicated panel (clears the other views).
+  const openPanel = (which: "video" | "summary") => {
+    setSuccess(false); setChatOpen(false); setMinimized(false); setNudgeDismissed(true); setUnreadDismissed(true); setFocused(false);
+    setVideoOpen(which === "video"); setSummaryOpen(which === "summary");
+  };
+  const closePanel = () => { setVideoOpen(false); setSummaryOpen(false); setFocused(false); setScrolledLocal(false); setHovered(false); };
+  // Route a pod action to its destination: booking → confirmation card, Video
+  // Library / Summarize → their panels, anything else → the chat.
+  const activateOption = (key?: string) => {
+    if (key === "book_call") return bookNow();
+    if (key === "video") return openPanel("video");
+    if (key === "summarize") return openPanel("summary");
+    return openOrContinue("");
+  };
+  const activatePrimary = () => activateOption(primary?.key);
 
   // Live refs so the window/document listeners always read the current phase.
   const chatVisibleRef = useRef(false);
-  chatVisibleRef.current = chatOpen || success;
+  chatVisibleRef.current = chatOpen || success || videoOpen || summaryOpen;
   const minimizedRef = useRef(false);
   minimizedRef.current = minimized;
+  const panelRef = useRef(false);
+  panelRef.current = videoOpen || summaryOpen;
   useEffect(() => {
     const inside = (t: EventTarget | null) => !!(rootRef.current && t instanceof Node && rootRef.current.contains(t));
     // Scrolling / clicking the config panel must NOT drive the widget's scroll state.
@@ -528,12 +654,12 @@ export default function BreakoutWidget({
     // Clicking outside the widget collapses an open chat (→ 435:233), or dismisses the
     // suggestion panel back to the resting pod. Either way it releases the latched hover —
     // a click on the page is the other gesture that ends the hover-open state.
-    const onDown = (e: MouseEvent) => { if (ignore(e.target)) return; setHovered(false); if (chatVisibleRef.current) toMinimized(); else toResting(); };
+    const onDown = (e: MouseEvent) => { if (ignore(e.target)) return; setHovered(false); if (panelRef.current) { setVideoOpen(false); setSummaryOpen(false); } else if (chatVisibleRef.current) toMinimized(); else toResting(); };
     // Clicking into the backdrop iframe moves focus off our window; mousedown never
     // reaches us from that document, so this is our only "touched the page" signal.
     // Same two outcomes — the on-scroll shrink is driven by the iframe's real scroll
     // (see App), not by focus changes. Counts as a page click → release the hover latch.
-    const onBlur = () => { setHovered(false); if (chatVisibleRef.current) toMinimized(); else toResting(); };
+    const onBlur = () => { setHovered(false); if (panelRef.current) { setVideoOpen(false); setSummaryOpen(false); } else if (chatVisibleRef.current) toMinimized(); else toResting(); };
     document.addEventListener("mousedown", onDown);
     window.addEventListener("blur", onBlur);
     window.addEventListener("scroll", onShrink, true); // capture → catches inner scroll containers
@@ -549,7 +675,7 @@ export default function BreakoutWidget({
 
   // Minimized renders the SAME resting view as "full" (frames 504:292/223/313) — only the
   // input copy and the reopen behaviour differ. So there is no separate minimized branch.
-  const view = success ? "success" : chatOpen ? "chat" : "full";
+  const view = success ? "success" : chatOpen ? "chat" : videoOpen ? "video" : summaryOpen ? "summary" : "full";
 
   // Hover LATCH (client requirement): entering the pod opens it and KEEPS it open even
   // after the pointer leaves the container. The expanded state is never released by the
@@ -603,7 +729,11 @@ export default function BreakoutWidget({
       <>
         {view === "success" && <div key="success" className={anchor}><SuccessCard theme={theme} logo={activeLogo} onClose={closeChat} onContinue={closeChat} /></div>}
 
-        {view === "chat" && <div key="chat" className={anchor}><ChatPanel theme={theme} logo={activeLogo} rep={rep} messages={messages} thinking={thinking} onSend={sendInChat} onCta={() => setSuccess(true)} onClose={closeChat} onMinimize={minimizeChat} cta={primary?.label} onSelectHistory={selectHistory} onNewConversation={newConversation} /></div>}
+        {view === "chat" && <div key="chat" className={anchor}><ChatPanel theme={theme} logo={activeLogo} rep={rep} connecting={connecting} messages={messages} thinking={thinking} onSend={sendInChat} onCta={() => setSuccess(true)} onClose={closeChat} onMinimize={minimizeChat} cta={primary?.label} emailCaptured={!!email} onEmailSubmit={submitEmail} /></div>}
+
+        {view === "summary" && <div key="summary" className={anchor}><SummaryPanel theme={theme} logo={activeLogo} onClose={closePanel} onMinimize={closePanel} onCta={() => setSuccess(true)} cta={primary?.label} /></div>}
+
+        {view === "video" && <div key="video" className={anchor}><VideoLibraryPanel theme={theme} logo={activeLogo} onClose={closePanel} onMinimize={closePanel} /></div>}
 
         {view === "full" && (
           <div key="full" className="absolute bottom-0 left-0 -translate-x-1/2">
@@ -655,7 +785,7 @@ export default function BreakoutWidget({
                             the caret lands in the field (frame 544:988). */}
                         {/* Same spring as the swap: the field has to take up the slack at the
                             exact rate the buttons give it up, or the bar visibly breathes. */}
-                        <motion.input ref={inputRef} value={inputValue} onChange={(e) => setInputValue(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter" && inputValue.trim()) openOrContinue(inputValue.trim()); }} className="bo-input bg-transparent text-[14px] font-medium leading-none tracking-[-0.14px] outline-none" initial={false} animate={{ width: inputW }} transition={swap} style={{ color: "var(--bo-text)", caretColor: "var(--bo-text)", "--bo-ph-op": focused ? 0.75 : hovered ? 0.95 : 1 } as CSSProperties} placeholder={minimized ? "Continue Conversation" : "Ask anything..."} onFocus={() => setFocused(true)} onBlur={() => setFocused(false)} tabIndex={showFullInput ? 0 : -1} />
+                        <motion.input ref={inputRef} value={inputValue} onChange={(e) => setInputValue(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter" && inputValue.trim()) openOrContinue(inputValue.trim()); }} className="bo-input bg-transparent text-[14px] font-medium leading-none tracking-[-0.14px] outline-none" initial={false} animate={{ width: inputW }} transition={swap} style={{ color: "var(--bo-text)", caretColor: "var(--bo-text)", "--bo-ph-op": hovered ? 1 : 0.75 } as CSSProperties} placeholder={minimized ? "Continue Conversation" : "Ask anything..."} onFocus={() => setFocused(true)} onBlur={() => setFocused(false)} tabIndex={showFullInput ? 0 : -1} />
                       </motion.div>
 
                       {/* The actions step aside the moment a character is typed, and the send
@@ -692,7 +822,7 @@ export default function BreakoutWidget({
                           transition={scrollEase}
                           style={{ columnGap: !compact && showFullInput ? 6 : 4, transitionProperty: "column-gap", transitionDuration: "260ms", transitionTimingFunction: "cubic-bezier(0.22,1,0.36,1)" }}
                         >
-                          {secondaries.map((o) => <MorphChip key={o.key} icon={o.icon} compact={compact} hoverBg={secHover} filter={filter} onClick={() => openOrContinue("")} />)}
+                          {secondaries.map((o) => <MorphChip key={o.key} icon={o.icon} label={o.label} compact={compact} hoverBg={secHover} filter={filter} onClick={() => activateOption(o.key)} />)}
                         </motion.div>
                       )}
 
@@ -741,7 +871,7 @@ export default function BreakoutWidget({
                 <motion.div animate={{ opacity: compact ? 0 : 1 }} transition={slowFade} style={{ pointerEvents: compact ? "none" : "auto" }}>
                   <AnimatePresence initial={false} mode="wait">
                     {menuOpen ? (
-                      <MenuPopover key="popover" menu={menu} suggestions={suggestions} onPick={openOrContinue} theme={theme} filter={filter} tint={glassTint} width={baseW} />
+                      <MenuPopover key="popover" menu={menu} suggestions={suggestions} onPick={openOrContinue} onOption={activateOption} theme={theme} filter={filter} tint={glassTint} width={baseW} />
                     ) : showUnreadCard ? (
                       <NudgeCard key="unread" type="notification" theme={theme} rep={REP_NAME} onCta={() => openChat("")} onClose={() => setUnreadDismissed(true)} />
                     ) : nudgeActive ? (
