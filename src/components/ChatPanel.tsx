@@ -30,25 +30,15 @@ function ThinkingDots() {
   );
 }
 
-/** Placeholder profile shown while connecting to a rep whose identity isn't known yet:
- *  a neutral disc with a generic person silhouette, wrapped in a spinning loader ring. */
+/** Placeholder profile shown while connecting to a rep whose identity isn't known yet
+ *  (Figma 635:2081): a flat dark disc with a generic person silhouette — no spinner. */
 function EmptyProfile({ size, radius }: { size: number; radius: number }) {
-  const ring = Math.max(1.5, size * 0.06);
   return (
-    <div className="relative shrink-0" style={{ width: size, height: size }}>
-      <div className="absolute inset-0 flex items-center justify-center overflow-hidden" style={{ borderRadius: radius, background: "linear-gradient(145deg,#3a3a42,#212127)" }}>
-        <svg width={size * 0.6} height={size * 0.6} viewBox="0 0 24 24" fill="rgba(255,255,255,0.6)" aria-hidden>
-          <circle cx="12" cy="8.6" r="3.7" />
-          <path d="M5 20c0-3.9 3.1-6.6 7-6.6s7 2.7 7 6.6z" />
-        </svg>
-      </div>
-      {/* Loader ring — not a glass surface, so it may spin/rotate freely. */}
-      <motion.span
-        className="absolute rounded-full"
-        style={{ inset: -ring, borderWidth: ring, borderStyle: "solid", borderColor: "rgba(255,255,255,0.22)", borderTopColor: "#ffffff" }}
-        animate={{ rotate: 360 }}
-        transition={{ duration: 0.9, repeat: Infinity, ease: "linear" }}
-      />
+    <div className="relative shrink-0 flex items-center justify-center overflow-hidden" style={{ width: size, height: size, borderRadius: radius, background: "linear-gradient(180deg,#3d3d42,#2b2b30)" }}>
+      <svg width={size * 0.62} height={size * 0.62} viewBox="0 0 24 24" fill="rgba(255,255,255,0.72)" aria-hidden>
+        <circle cx="12" cy="9" r="3.6" />
+        <path d="M4.5 20c0-4 3.3-6.6 7.5-6.6s7.5 2.6 7.5 6.6z" />
+      </svg>
     </div>
   );
 }
@@ -251,15 +241,13 @@ export default function ChatPanel({
             <div className="relative flex w-full shrink-0 items-center justify-between pr-[4px]">
               <div className="flex items-center gap-[6px]">
                 <div className="overflow-hidden rounded-[5px]" style={{ borderWidth: 0.625, borderStyle: "solid", borderColor: "var(--bo-hairline)" }}><Avatar rep={rep} theme={theme} size={20} radius={5} logo={logo} online={!!rep} connecting={connecting} /></div>
-                {/* Plain title — no dropdown (history removed from the prototype). */}
-                <span className="whitespace-nowrap text-[14px] font-medium leading-none" style={txt}>{title}</span>
-                {/* Connecting status lives here in the header (Figma 622:2025), with a
-                    loader — not as a transcript divider — and clears once the rep joins. */}
-                {connecting && (
-                  <span className="flex items-center gap-[5px] whitespace-nowrap text-[13px] font-medium leading-none opacity-55" style={txt}>
-                    <motion.span className="block size-[11px] shrink-0 rounded-full" style={{ borderWidth: 1.5, borderStyle: "solid", borderColor: "var(--bo-text)", borderTopColor: "transparent" }} animate={{ rotate: 360 }} transition={{ duration: 0.8, repeat: Infinity, ease: "linear" }} />
-                    Connecting with Sales Rep
-                  </span>
+                {/* While connecting (Figma 635:2081) the header is just the empty profile +
+                    a shimmering "Connecting with Sales Rep" — the shimmer is the loader.
+                    It replaces the title outright and clears the moment the rep joins. */}
+                {connecting ? (
+                  <span className="bo-shimmer whitespace-nowrap text-[14px] font-medium leading-none">Connecting with Sales Rep</span>
+                ) : (
+                  <span className="whitespace-nowrap text-[14px] font-medium leading-none" style={txt}>{title}</span>
                 )}
               </div>
               <div className="flex items-center gap-[12px]">

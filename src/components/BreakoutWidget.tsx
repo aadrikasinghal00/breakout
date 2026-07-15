@@ -516,7 +516,7 @@ export default function BreakoutWidget({
       // "Connecting with Sales Rep" → Sarah joins → she greets.
       if (sentRef.current >= 3 && !repHere && !salesInvited) {
         setSalesInvited(true);
-        setMessages((m) => [...m, { from: "ai", text: "Your request is valid — let me invite a sales rep who can dig into the details with you." }]);
+        setMessages((m) => [...m, { from: "ai", text: "Your request is valid, let me invite a sales rep." }]);
         // The connecting state lives in the HEADER (loader + empty profile), not as a
         // transcript divider. It clears the instant the rep joins — never lingers.
         setConnecting(true);
